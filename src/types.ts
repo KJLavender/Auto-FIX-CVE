@@ -36,6 +36,13 @@ export interface Usage {
   mentionedBy: string[];
 }
 
+export interface ViaUsage {
+  /** Direct dependency that pulls in the vulnerable package. */
+  package: string;
+  /** Where the project uses that direct dependency. */
+  usages: Usage[];
+}
+
 export type Reachability = "likely" | "imported" | "not-imported";
 
 export interface Finding {
@@ -48,5 +55,7 @@ export interface Finding {
   /** True when upgrading to the safe version is a semver-breaking change. */
   breaking: boolean;
   usages: Usage[];
+  /** For transitive packages: the used direct dependencies that pull them in. */
+  via: ViaUsage[];
   reachability: Reachability;
 }

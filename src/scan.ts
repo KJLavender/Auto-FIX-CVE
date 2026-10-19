@@ -84,16 +84,24 @@ export async function scan(projectDir: string, options: ScanOptions): Promise<Fi
     const ids = hits[i].filter((id) => !mitigated.has(id));
     return ids.length ? [{ dep, ids }] : [];
   });
-  const usages = await findUsages(projectDir, [...new Set(vulnerable.map((v) => v.dep.name))]);
+  // Also look up the direct dependencies that pull in transitive ones: calling
+  // axios is how an app reaches a vulnerable follow-redirects underneath it.
+  const introducers = vulnerable.flatMap((v) => (v.dep.direct ? [] : v.dep.introducedBy));
+  const usages = await findUsages(projectDir, [...new Set([...vulnerable.map((v) => v.dep.name), ...introducers])]);
 
   const findings = await mapLimit(vulnerable, CONCURRENCY, async ({ dep, ids }): Promise<Finding> => {
     const vulns = await osv.getVulns(ids, dep.name);
     const { version: safeVersion, unfixable } = await osv.findSafeVersion(dep.name, dep.version, vulns);
     const depUsages = (usages.get(dep.name) ?? []).map((u) => ({ ...u }));
     markMentions(depUsages, vulns);
+    const via = dep.direct
+      ? []
+      : dep.introducedBy
+          .filter((p) => p !== dep.name && usages.get(p)?.length)
+          .map((p) => ({ package: p, usages: usages.get(p)! }));
     const reachability: Reachability = depUsages.some((u) => u.mentionedBy.length)
       ? "likely"
-      : depUsages.length
+      : depUsages.length || via.length
         ? "imported"
         : "not-imported";
     return {
@@ -103,6 +111,7 @@ export async function scan(projectDir: string, options: ScanOptions): Promise<Fi
       unfixable,
       breaking: safeVersion !== undefined && isBreakingUpgrade(dep.version, safeVersion),
       usages: depUsages,
+      via,
       reachability,
     };
   });

@@ -26,6 +26,7 @@ const finding: Finding = {
     { file: "src/other.ts", line: 2, column: 1, specifier: "lodash", symbol: "merge", snippet: "", mentionedBy: [] },
   ],
   reachability: "likely",
+  via: [],
 };
 
 describe("toSarif", () => {

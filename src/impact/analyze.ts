@@ -163,8 +163,8 @@ export function findUsagesInSource(file: string, source: string, packages: strin
           let symbol = b.imported;
           if ((b.imported === "*" || b.imported === "default") && ts.isPropertyAccessExpression(parent)) {
             symbol = parent.name.text;
-          } else if (b.imported === "*" && ts.isCallExpression(parent) && parent.expression === node) {
-            symbol = "(module called as function)";
+          } else if ((b.imported === "*" || b.imported === "default") && ts.isCallExpression(parent) && parent.expression === node) {
+            symbol = b.imported === "*" ? "(module called as function)" : "default()";
           }
           record(pkg, node, b.specifier, symbol);
         }

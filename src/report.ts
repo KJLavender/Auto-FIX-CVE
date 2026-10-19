@@ -101,6 +101,11 @@ export function formatReport(findings: Finding[], maxUsages = 10): string {
       }
       if (f.usages.length > maxUsages) out.push(pc.dim(`    … ${f.usages.length - maxUsages} more`));
     }
+    for (const via of f.via) {
+      out.push(`  ${pc.cyan(`reached through ${via.package}, used in ${via.usages.length} place(s):`)}`);
+      for (const u of via.usages.slice(0, 3)) out.push(`    ${u.file}:${u.line}:${u.column}  ${pc.bold(u.symbol)}  ${pc.dim(u.snippet)}`);
+      if (via.usages.length > 3) out.push(pc.dim(`    … ${via.usages.length - 3} more`));
+    }
     out.push("");
   }
   return out.join("\n");

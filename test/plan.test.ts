@@ -11,6 +11,7 @@ function finding(over: Partial<Finding> & { direct?: boolean; version?: string }
     unfixable: [],
     breaking: false,
     usages: [],
+    via: [],
     reachability: "imported",
     ...rest,
   };

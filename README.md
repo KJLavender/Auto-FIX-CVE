@@ -21,7 +21,7 @@ Most dependency scanners stop at "upgrade to vX". Auto-FIX-CVE closes the loop. 
 What sets it apart:
 
 - **The safe version really is safe.** Every suggested upgrade target is re-checked against OSV, so an upgrade never lands on a different CVE.
-- **Reachability hints.** Each finding is labelled `LIKELY REACHABLE`, `imported` or `not imported`. A usage is flagged when the API it calls (e.g. `_.template`) is named in the advisory.
+- **Reachability hints.** Each finding is labelled `LIKELY REACHABLE`, `imported` or `not imported`. A usage is flagged when the API it calls (e.g. `_.template`) is named in the advisory. Transitive packages are traced to the direct dependency you call: `qs` inside `express` shows the line where you use `express`.
 - **Backports that are proven, not assumed.** A backport is kept only if a PoC reproduces the vulnerability on the unpatched package, passes on the patched one, and still passes after a clean reinstall.
 - **No new dependencies to fix old ones.** Backports are re-applied by a small, dependency-free postinstall script that is committed to your repo. In testing, adding `patch-package` for this pulled in a vulnerable transitive dependency of its own.
 

@@ -68,10 +68,14 @@ export async function toSarif(
           text: `${name}@${installed} is affected by ${cve ?? v.id}: ${v.summary}. ${fix} Reachability: ${f.reachability}.`,
         },
         locations: [location(uri(lockName), lockfileLine(kind, lock, name, installed))],
-        relatedLocations: f.usages.slice(0, 20).map((u, i) => ({
-          id: i,
-          ...location(uri(u.file), u.line, u.column, `uses ${name} (${u.symbol})`),
-        })),
+        relatedLocations: [
+          ...f.usages.map((u) => location(uri(u.file), u.line, u.column, `uses ${name} (${u.symbol})`)),
+          ...f.via.flatMap((v) =>
+            v.usages.map((u) => location(uri(u.file), u.line, u.column, `uses ${v.package}, which pulls in ${name}`)),
+          ),
+        ]
+          .slice(0, 20)
+          .map((l, i) => ({ id: i, ...l })),
         partialFingerprints: { packageVuln: `${name}@${installed}/${v.id}` },
       });
       for (const u of named) {
