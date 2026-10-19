@@ -1,0 +1,79 @@
+name: Auto-FIX-CVE
+description: Scan npm dependencies for CVEs, point at the code that reaches them, and verify backported fixes.
+branding:
+  icon: shield
+  color: green
+
+inputs:
+  path:
+    description: Project directory containing package-lock.json, relative to the repository root.
+    default: "."
+  fail-on:
+    description: "Fail the job when findings match: any, likely (reachable from your code), high (severity), none."
+    default: any
+  include-dev:
+    description: Also scan dev-only dependencies.
+    default: "true"
+  sarif-file:
+    description: Where to write the SARIF report.
+    default: autofix-cve.sarif
+  upload-sarif:
+    description: Upload the SARIF report to GitHub code scanning (needs `security-events: write`).
+    default: "true"
+  verify:
+    description: Re-run backport PoCs when .autofix-cve.json exists (needs dependencies installed first).
+    default: "true"
+
+outputs:
+  sarif-file:
+    description: Path of the SARIF report.
+    value: ${{ inputs.sarif-file }}
+
+runs:
+  using: composite
+  steps:
+    - name: Build Auto-FIX-CVE
+      shell: bash
+      run: |
+        cd "$GITHUB_ACTION_PATH"
+        npm ci --no-audit --no-fund --ignore-scripts
+        npm run build
+
+    - name: Scan
+      id: scan
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+        INPUT_FAIL_ON: ${{ inputs.fail-on }}
+        INPUT_SARIF: ${{ inputs.sarif-file }}
+        INPUT_DEV: ${{ inputs.include-dev }}
+      run: |
+        dev_flag=""
+        [ "$INPUT_DEV" = "true" ] || dev_flag="--no-dev"
+        set +e
+        node "$GITHUB_ACTION_PATH/dist/cli.js" scan "$INPUT_PATH" --sarif "$INPUT_SARIF" --fail-on "$INPUT_FAIL_ON" $dev_flag
+        echo "exit-code=$?" >> "$GITHUB_OUTPUT"
+
+    - name: Upload SARIF
+      if: ${{ inputs.upload-sarif == 'true' && always() }}
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ inputs.sarif-file }}
+        category: autofix-cve
+
+    - name: Verify backports
+      if: ${{ inputs.verify == 'true' && hashFiles(format('{0}/.autofix-cve.json', inputs.path)) != '' }}
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+      run: node "$GITHUB_ACTION_PATH/dist/cli.js" verify "$INPUT_PATH"
+
+    - name: Apply fail-on policy
+      if: ${{ steps.scan.outputs.exit-code != '0' }}
+      shell: bash
+      env:
+        CODE: ${{ steps.scan.outputs.exit-code }}
+        INPUT_FAIL_ON: ${{ inputs.fail-on }}
+      run: |
+        echo "::error::Vulnerable dependencies found (fail-on: $INPUT_FAIL_ON, exit code $CODE)"
+        exit 1

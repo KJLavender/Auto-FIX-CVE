@@ -1,0 +1,111 @@
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import type { Finding, Vulnerability } from "./types.js";
+
+// GitHub code scanning ranks alerts by this numeric score (CVSS-like, 0-10).
+const SECURITY_SEVERITY: Record<string, string> = { CRITICAL: "9.5", HIGH: "8.0", MODERATE: "5.5", MEDIUM: "5.5", LOW: "3.0" };
+const LEVEL: Record<string, "error" | "warning" | "note"> = { CRITICAL: "error", HIGH: "error", MODERATE: "warning", MEDIUM: "warning", LOW: "note" };
+
+interface Location {
+  physicalLocation: { artifactLocation: { uri: string }; region: { startLine: number; startColumn?: number } };
+  message?: { text: string };
+}
+
+function cveOf(v: Vulnerability): string | undefined {
+  return v.aliases.find((a) => a.startsWith("CVE-"));
+}
+
+function location(uri: string, startLine: number, startColumn?: number, text?: string): Location {
+  return {
+    physicalLocation: { artifactLocation: { uri }, region: { startLine, ...(startColumn ? { startColumn } : {}) } },
+    ...(text ? { message: { text } } : {}),
+  };
+}
+
+/** Line of `"node_modules/<name>": {` in package-lock.json, so alerts point at the installed entry. */
+function lockfileLine(lines: string[], name: string): number {
+  const key = `"node_modules/${name}"`;
+  const i = lines.findIndex((l) => l.trimStart().startsWith(key));
+  return i === -1 ? 1 : i + 1;
+}
+
+/**
+ * Builds a SARIF 2.1.0 log: one alert per vulnerable package on its lockfile
+ * entry, plus one per call site whose API the advisory names, so code
+ * scanning annotates the exact line that reaches the vulnerable code.
+ */
+export async function toSarif(
+  projectDir: string,
+  findings: Finding[],
+  version: string,
+  baseDir = process.cwd(),
+): Promise<object> {
+  // Code scanning resolves URIs against the repository root, which is where CI runs.
+  const uri = (file: string) => path.relative(baseDir, path.join(projectDir, file)).split(path.sep).join("/");
+  const lock = (await readFile(path.join(projectDir, "package-lock.json"), "utf8")).split(/\r?\n/);
+  const rules = new Map<string, object>();
+  const results: object[] = [];
+
+  for (const f of findings) {
+    const { name, version: installed } = f.dependency;
+    const fix = f.safeVersion ? `Upgrade to ${f.safeVersion}.` : "No fixed release; consider `autofix-cve fix` to backport the upstream patch.";
+    for (const v of f.vulns) {
+      const sev = v.severity?.toUpperCase() ?? "";
+      const cve = cveOf(v);
+      if (!rules.has(v.id)) {
+        rules.set(v.id, {
+          id: v.id,
+          name: cve ?? v.id,
+          shortDescription: { text: v.summary || v.id },
+          fullDescription: { text: v.details.slice(0, 1000) || v.summary || v.id },
+          helpUri: `https://osv.dev/vulnerability/${v.id}`,
+          help: { text: `${v.summary}\n\nSee https://osv.dev/vulnerability/${v.id}` },
+          defaultConfiguration: { level: LEVEL[sev] ?? "warning" },
+          properties: { tags: ["security", "dependency", ...(cve ? [cve] : [])], "security-severity": SECURITY_SEVERITY[sev] ?? "5.0" },
+        });
+      }
+
+      const named = f.usages.filter((u) => u.mentionedBy.includes(v.id));
+      results.push({
+        ruleId: v.id,
+        level: LEVEL[sev] ?? "warning",
+        message: {
+          text: `${name}@${installed} is affected by ${cve ?? v.id}: ${v.summary}. ${fix} Reachability: ${f.reachability}.`,
+        },
+        locations: [location(uri("package-lock.json"), lockfileLine(lock, name))],
+        relatedLocations: f.usages.slice(0, 20).map((u, i) => ({
+          id: i,
+          ...location(uri(u.file), u.line, u.column, `uses ${name} (${u.symbol})`),
+        })),
+        partialFingerprints: { packageVuln: `${name}@${installed}/${v.id}` },
+      });
+      for (const u of named) {
+        results.push({
+          ruleId: v.id,
+          level: LEVEL[sev] ?? "warning",
+          message: { text: `Calls \`${u.symbol}\` from ${name}@${installed}, the API named in ${cve ?? v.id}. ${fix}` },
+          locations: [location(uri(u.file), u.line, u.column)],
+          partialFingerprints: { callSite: `${u.file}/${u.symbol}/${v.id}` },
+        });
+      }
+    }
+  }
+
+  return {
+    $schema: "https://json.schemastore.org/sarif-2.1.0.json",
+    version: "2.1.0",
+    runs: [
+      {
+        tool: {
+          driver: {
+            name: "Auto-FIX-CVE",
+            version,
+            informationUri: "https://github.com/KJLavender/Auto-FIX-CVE",
+            rules: [...rules.values()],
+          },
+        },
+        results,
+      },
+    ],
+  };
+}

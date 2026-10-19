@@ -1,7 +1,8 @@
 #!/usr/bin/env node
+import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
-import { Command } from "commander";
+import { Command, Option } from "commander";
 import pc from "picocolors";
 import { backportFinding, canBackport } from "./backport/backport.js";
 import { appliedBackports, MANIFEST, readManifest } from "./backport/manifest.js";
@@ -13,7 +14,26 @@ import { CliBackend, DEFAULT_MODEL } from "./llm/backend.js";
 import { OsvClient } from "./osv/client.js";
 import { abandonBranch, checkPrPrerequisites, createBranch, openPr } from "./pr.js";
 import { formatFixSummary, formatPlan, formatReport } from "./report.js";
-import { scan } from "./scan.js";
+import { toSarif } from "./sarif.js";
+import { maxSeverity, scan } from "./scan.js";
+import type { Finding } from "./types.js";
+
+const VERSION = "0.1.0";
+
+type FailOn = "any" | "likely" | "high" | "none";
+
+function fails(f: Finding, failOn: FailOn): boolean {
+  switch (failOn) {
+    case "any":
+      return true;
+    case "likely":
+      return f.reachability === "likely";
+    case "high":
+      return maxSeverity(f.vulns) >= 3;
+    case "none":
+      return false;
+  }
+}
 
 async function confirm(question: string): Promise<boolean> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
@@ -29,7 +49,7 @@ const program = new Command();
 program
   .name("autofix-cve")
   .description("Find CVEs in your dependencies, locate where your code uses them, and fix them.")
-  .version("0.1.0");
+  .version(VERSION);
 
 program
   .command("scan")
@@ -38,18 +58,29 @@ program
   .option("--json", "print machine-readable JSON")
   .option("--no-dev", "ignore dev-only dependencies")
   .option("--max-usages <n>", "usages to show per package", (v) => Number.parseInt(v, 10), 10)
-  .action(async (dir: string, opts: { json?: boolean; dev: boolean; maxUsages: number }) => {
-    const findings = await scan(path.resolve(dir), { includeDev: opts.dev });
+  .option("--sarif <file>", "also write a SARIF 2.1.0 report (for GitHub code scanning)")
+  .addOption(
+    new Option("--fail-on <level>", "exit 1 when findings match: any, likely (reachable), high (severity), none")
+      .choices(["any", "likely", "high", "none"])
+      .default("any"),
+  )
+  .action(async (dir: string, opts: { json?: boolean; dev: boolean; maxUsages: number; sarif?: string; failOn: FailOn }) => {
+    const projectDir = path.resolve(dir);
+    const findings = await scan(projectDir, { includeDev: opts.dev });
+    if (opts.sarif) {
+      const sarif = await toSarif(projectDir, findings, VERSION);
+      await writeFile(opts.sarif, JSON.stringify(sarif, null, 2) + "\n", "utf8");
+    }
     console.log(opts.json ? JSON.stringify(findings, null, 2) : formatReport(findings, opts.maxUsages));
-    const manifest = await readManifest(path.resolve(dir));
+    const manifest = await readManifest(projectDir);
     if (manifest.backports.length && !opts.json) {
-      const applied = await appliedBackports(path.resolve(dir), manifest);
+      const applied = await appliedBackports(projectDir, manifest);
       for (const b of manifest.backports) {
         const label = applied.includes(b) ? pc.green("backported") : pc.red("backport NOT applied (run npm install)");
         console.log(`${label}  ${b.package}@${b.version}  ${pc.dim(b.vulns.join(", "))}`);
       }
     }
-    process.exitCode = findings.length ? 1 : 0;
+    process.exitCode = findings.some((f) => fails(f, opts.failOn)) ? 1 : 0;
   });
 
 program

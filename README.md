@@ -27,7 +27,7 @@ What sets it apart:
 
 ## Usage
 
-Requires Node.js ≥ 20 and a `package-lock.json` (lockfile v2/v3). `fix` also needs a local LLM CLI (see [LLM backend](#llm-backend)).
+Requires Node.js ≥ 22.12 and a `package-lock.json` (lockfile v2/v3). `fix` also needs a local LLM CLI (see [LLM backend](#llm-backend)).
 
 ```bash
 npm install
@@ -176,6 +176,36 @@ VULNERABLE  marked@2.1.3  .autofix-cve/poc/GHSA-5v2h-r2cx-5xgj.cjs
 [autofix-cve] command timed out after 10s
 ```
 
+### GitHub Action
+
+```yaml
+name: CVE scan
+on: [push, pull_request]
+permissions:
+  contents: read
+  security-events: write   # for the SARIF upload
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci            # applies backports via postinstall, needed by verify
+      - uses: KJLavender/Auto-FIX-CVE@main
+        with:
+          fail-on: likely      # any | likely | high | none
+```
+
+The action scans, uploads a SARIF report to code scanning, and runs `verify` when the project has backports. Alerts appear on the lockfile entry **and on the exact lines that call the API named in the advisory**. Inputs: `path`, `fail-on`, `include-dev`, `sarif-file`, `upload-sarif`, `verify`.
+
+The same options are available locally:
+
+```bash
+node dist/cli.js scan . --sarif results.sarif --fail-on likely
+```
+
 ## Security model
 
 Advisory text and upstream diffs are untrusted input to the LLM, so its output is constrained:
@@ -214,7 +244,7 @@ The fixtures under `test/fixtures/` are intentionally vulnerable. Copy them to a
 - [x] Upgrade path with LLM repair and rollback
 - [x] Backport path with PoC proof, dependency-free persistence and `verify`
 - [x] PR generation with the evidence attached
-- [ ] GitHub Action
+- [x] GitHub Action with SARIF upload (code scanning alerts on call sites)
 - [ ] yarn / pnpm lockfiles
 - [ ] Python (pip / poetry / uv) support
 

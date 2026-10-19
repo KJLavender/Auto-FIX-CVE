@@ -27,7 +27,7 @@
 
 ## 使用方式
 
-需要 Node.js ≥ 20 與 `package-lock.json`（lockfile v2/v3）。`fix` 另外需要本機的 LLM CLI（見 [LLM backend](#llm-backend)）。
+需要 Node.js ≥ 22.12 與 `package-lock.json`（lockfile v2/v3）。`fix` 另外需要本機的 LLM CLI（見 [LLM backend](#llm-backend)）。
 
 ```bash
 npm install
@@ -176,6 +176,36 @@ VULNERABLE  marked@2.1.3  .autofix-cve/poc/GHSA-5v2h-r2cx-5xgj.cjs
 [autofix-cve] command timed out after 10s
 ```
 
+### GitHub Action
+
+```yaml
+name: CVE scan
+on: [push, pull_request]
+permissions:
+  contents: read
+  security-events: write   # 上傳 SARIF 需要
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci            # 透過 postinstall 套用 backport，verify 需要
+      - uses: KJLavender/Auto-FIX-CVE@main
+        with:
+          fail-on: likely      # any | likely | high | none
+```
+
+這個 action 會掃描、把 SARIF 報告上傳到 code scanning；專案有 backport 時也會執行 `verify`。Alert 會出現在 lockfile 的套件項目上，**也會出現在呼叫 advisory 點名的 API 的那一行程式碼**。可用的輸入：`path`、`fail-on`、`include-dev`、`sarif-file`、`upload-sarif`、`verify`。
+
+在本機也能用相同的選項：
+
+```bash
+node dist/cli.js scan . --sarif results.sarif --fail-on likely
+```
+
 ## 安全模型
 
 Advisory 內文和上游 diff 對 LLM 來說都是不可信的輸入，所以會限制它的輸出：
@@ -214,7 +244,7 @@ npm run dev -- scan test/fixtures/vuln-app
 - [x] 升級路線：LLM 修正與 rollback
 - [x] Backport 路線：PoC 證明、零依賴的修補保存、`verify`
 - [x] 產生附上驗證證據的 PR
-- [ ] GitHub Action
+- [x] GitHub Action 與 SARIF 上傳（code scanning 直接標註呼叫點）
 - [ ] yarn / pnpm lockfile
 - [ ] 支援 Python（pip / poetry / uv）
 

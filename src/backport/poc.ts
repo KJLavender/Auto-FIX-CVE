@@ -71,7 +71,7 @@ export async function writePoc(projectDir: string, vulnId: string, script: strin
   return file;
 }
 
-// Stable as --permission since Node 22.13 / 23.5; Node 20 only knows the experimental name.
+// Stable as --permission since Node 22.13 / 23.5; 22.12 only knows the experimental name.
 const PERMISSION_FLAG = process.allowedNodeEnvironmentFlags.has("--permission") ? "--permission" : "--experimental-permission";
 
 /** Runs a check script under the Node permission model, read-only and without child processes. */
