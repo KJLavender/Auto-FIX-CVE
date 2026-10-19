@@ -72,6 +72,7 @@ node dist/cli.js fix path/to/project --no-breaking      # 只做 semver 相容�
 node dist/cli.js fix path/to/project --prefer-backport  # 用 backport 取代破壞性升級
 node dist/cli.js fix path/to/project --no-backport      # 永不修改已安裝的套件
 node dist/cli.js fix path/to/project --yes              # 不詢問（CI 用）
+node dist/cli.js fix path/to/project --pr               # commit 到新分支並開 GitHub PR
 ```
 
 `fix` 會先列出計畫，問過你才動手：
@@ -158,6 +159,10 @@ Backport 會在你的 repo 加入這些檔案：
 
 `scan` **只在版本完全相同、且修補確實套用中**時，才會把這些 CVE 視為已修復。套件版本一變，或安裝時略過了 scripts，這些 CVE 就會重新被回報。
 
+#### Pull request
+
+加上 `--pr` 時，修補會 commit 到新的 `autofix-cve/<timestamp>` 分支、push，再用 `gh` 開成 pull request。開始修復之前會先檢查前置條件：必須有 checkout 的分支、指向 GitHub 的 `origin` remote，以及已登入的 `gh`。PR 內容會列出每個修好的 CVE 及其證據（通過的驗證指令、PoC 判定、OSV 確認）、模型對每處程式碼修改的說明、沒修好的項目與原因，以及重新掃描的結果。如果什麼都沒修好，就刪除這個分支。
+
 ### 驗證（CI）
 
 ```bash
@@ -208,7 +213,7 @@ npm run dev -- scan test/fixtures/vuln-app
 - [x] 以 AST 分析使用位置（ESM、CommonJS、dynamic import、re-export）
 - [x] 升級路線：LLM 修正與 rollback
 - [x] Backport 路線：PoC 證明、零依賴的修補保存、`verify`
-- [ ] 產生附上驗證證據的 PR
+- [x] 產生附上驗證證據的 PR
 - [ ] GitHub Action
 - [ ] yarn / pnpm lockfile
 - [ ] 支援 Python（pip / poetry / uv）

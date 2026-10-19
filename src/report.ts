@@ -43,7 +43,6 @@ export function formatFixSummary(results: FixResult[], remaining: Finding[]): st
   const left = remaining.reduce((n, f) => n + f.vulns.length, 0);
   out.push("");
   out.push(left ? pc.yellow(`${left} known vulnerabilities remain in ${remaining.length} packages.`) : pc.green("Rescan is clean."));
-  out.push(pc.dim("Changes are left in the working tree for review."));
   return out.join("\n");
 }
 

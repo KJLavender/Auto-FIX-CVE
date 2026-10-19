@@ -72,6 +72,7 @@ node dist/cli.js fix path/to/project --no-breaking      # semver-compatible upgr
 node dist/cli.js fix path/to/project --prefer-backport  # backport instead of breaking upgrades
 node dist/cli.js fix path/to/project --no-backport      # never patch installed packages
 node dist/cli.js fix path/to/project --yes              # no prompt (CI)
+node dist/cli.js fix path/to/project --pr               # commit on a new branch and open a GitHub PR
 ```
 
 `fix` first prints a plan and asks before changing anything:
@@ -158,6 +159,10 @@ Files a backport adds to your repo:
 
 `scan` treats those CVEs as fixed **only for that exact version and only while the patch is actually applied**. If the package version changes, or an install skipped scripts, the CVEs are reported again.
 
+#### Pull requests
+
+With `--pr`, the fixes are committed to a new `autofix-cve/<timestamp>` branch, pushed, and opened as a pull request with `gh`. Prerequisites are checked before anything runs: a checked-out branch, an `origin` remote on GitHub, and a logged-in `gh`. The PR body lists every fixed CVE with its evidence (checks that passed, PoC verdicts, OSV confirmation), the model's explanation of each code change, anything that was not fixed and why, and the rescan result. If nothing could be fixed, the branch is deleted.
+
 ### Verify (CI)
 
 ```bash
@@ -208,7 +213,7 @@ The fixtures under `test/fixtures/` are intentionally vulnerable. Copy them to a
 - [x] AST-based usage analysis (ESM, CommonJS, dynamic import, re-exports)
 - [x] Upgrade path with LLM repair and rollback
 - [x] Backport path with PoC proof, dependency-free persistence and `verify`
-- [ ] PR generation with the evidence attached
+- [x] PR generation with the evidence attached
 - [ ] GitHub Action
 - [ ] yarn / pnpm lockfiles
 - [ ] Python (pip / poetry / uv) support

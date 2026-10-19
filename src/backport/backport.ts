@@ -3,7 +3,7 @@ import path from "node:path";
 import { exportShape } from "../fix/context.js";
 import { applyEdits, changedSince, restoreFiles, snapshot, type Edit } from "../fix/edits.js";
 import { run, tail } from "../fix/exec.js";
-import type { FixOptions, FixResult } from "../fix/upgrade.js";
+import { describeVuln, type FixOptions, type FixResult } from "../fix/upgrade.js";
 import type { Finding, Vulnerability } from "../types.js";
 import { fetchFixDiff, removedLines, splitDiff } from "./github.js";
 import { locateTargets } from "./locate.js";
@@ -62,6 +62,8 @@ export async function backportFinding(projectDir: string, finding: Finding, opts
     attempts: 0,
     changedFiles: [],
     explanations: [],
+    fixedVulns: [],
+    evidence: [],
     costUsd: 0,
   };
 
@@ -213,6 +215,15 @@ export async function backportFinding(projectDir: string, finding: Finding, opts
   return {
     ...result,
     status: "fixed",
+    fixedVulns: verified.map((v) => describeVuln(v.vuln)),
+    evidence: [
+      ...verified.map(
+        (v) =>
+          `${v.vuln.id}: PoC reproduced the bug on unpatched ${version}, passes after patching and after a clean reinstall (${path.relative(projectDir, v.poc).split(path.sep).join("/")})`,
+      ),
+      ...(opts.checks.length ? [`checks pass with the backport: ${opts.checks.join(", ")}`] : []),
+      `ported from ${[...new Set(verified.flatMap((v) => v.vuln.fixCommits))].join(", ")}`,
+    ],
     reason: unresolved.length ? `not reproduced, still open: ${unresolved.join(", ")}` : undefined,
     changedFiles: await changedSince(projectDir, originals),
   };

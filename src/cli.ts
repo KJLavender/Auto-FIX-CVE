@@ -11,6 +11,7 @@ import { run } from "./fix/exec.js";
 import { fixFinding, planFinding, readInstalledVersion, verifyBaseline, type FixResult } from "./fix/upgrade.js";
 import { CliBackend, DEFAULT_MODEL } from "./llm/backend.js";
 import { OsvClient } from "./osv/client.js";
+import { abandonBranch, checkPrPrerequisites, createBranch, openPr } from "./pr.js";
 import { formatFixSummary, formatPlan, formatReport } from "./report.js";
 import { scan } from "./scan.js";
 
@@ -65,6 +66,7 @@ program
   .option("--dry-run", "show the plan and exit without changing anything")
   .option("-y, --yes", "apply the plan without asking (for CI)")
   .option("--allow-dirty", "run even if the git working tree has uncommitted changes")
+  .option("--pr", "commit the fixes on a new branch, push it and open a GitHub pull request")
   .option("--json", "print machine-readable JSON")
   .action(
     async (
@@ -80,6 +82,7 @@ program
         dryRun?: boolean;
         yes?: boolean;
         allowDirty?: boolean;
+        pr?: boolean;
         json?: boolean;
       },
     ) => {
@@ -108,6 +111,8 @@ program
         .map((f) => planFinding(f, policy));
 
       (opts.json ? console.error : console.log)(formatPlan(plan, checks));
+      const base = opts.pr ? await checkPrPrerequisites(projectDir) : undefined;
+      if (base) console.error(pc.dim(`  Fixes will be committed to a new branch and opened as a PR against ${base}.`));
       const actionable = plan.filter((s) => s.action !== "skip");
       if (opts.dryRun || actionable.length === 0) return;
       if (!opts.yes) {
@@ -118,6 +123,7 @@ program
         }
       }
       if (checks.length) await verifyBaseline(projectDir, checks);
+      const branch = base ? await createBranch(projectDir) : undefined;
 
       const fixOpts = {
         ...policy,
@@ -139,7 +145,13 @@ program
         results.push(result);
         if (result.status === "failed" && policy.backport && canBackport(finding)) {
           log("  upgrade failed; falling back to a backport");
-          results.push(await backportFinding(projectDir, finding, fixOpts));
+          const fallback = await backportFinding(projectDir, finding, fixOpts);
+          const upgradeNote = `upgrade to ${result.to} failed (${result.reason})`;
+          results[results.length - 1] = {
+            ...fallback,
+            reason: [upgradeNote, fallback.reason].filter(Boolean).join("; "),
+            costUsd: fallback.costUsd + result.costUsd,
+          };
         }
       }
 
@@ -147,6 +159,18 @@ program
       const remaining = await scan(projectDir, { includeDev: opts.dev });
       if (opts.json) console.log(JSON.stringify({ results, remaining }, null, 2));
       else console.log(formatFixSummary(results, remaining));
+
+      if (base && branch) {
+        if (results.some((r) => r.status === "fixed")) {
+          const url = await openPr(projectDir, base, branch, results, remaining);
+          console.log(pc.green(`Pull request: ${url}`));
+        } else {
+          await abandonBranch(projectDir, base, branch);
+          log(`Nothing was fixed; deleted branch ${branch}.`);
+        }
+      } else if (!opts.json && results.some((r) => r.status === "fixed")) {
+        console.log(pc.dim("Changes are left in the working tree for review."));
+      }
       process.exitCode = results.some((r) => r.status !== "fixed") ? 1 : 0;
     },
   );

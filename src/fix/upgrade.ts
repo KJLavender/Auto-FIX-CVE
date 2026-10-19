@@ -23,7 +23,16 @@ export interface FixResult {
   attempts: number;
   changedFiles: string[];
   explanations: string[];
+  /** Vulnerabilities this fix addresses, e.g. `GHSA-xxxx (CVE-2021-1234)`. */
+  fixedVulns: string[];
+  /** Human-readable proof that the fix works: checks run, PoC verdicts, rescans. */
+  evidence: string[];
   costUsd: number;
+}
+
+export function describeVuln(v: { id: string; aliases: string[] }): string {
+  const cve = v.aliases.find((a) => a.startsWith("CVE-"));
+  return cve ? `${v.id} (${cve})` : v.id;
 }
 
 export interface FixOptions extends PlanPolicy {
@@ -173,6 +182,8 @@ export async function fixFinding(projectDir: string, finding: Finding, opts: Fix
     attempts: 0,
     changedFiles: [],
     explanations: [],
+    fixedVulns: finding.vulns.map(describeVuln),
+    evidence: [],
     costUsd: 0,
   };
   const step = planFinding(finding, opts);
@@ -267,5 +278,10 @@ export async function fixFinding(projectDir: string, finding: Finding, opts: Fix
     check = await runChecks(projectDir, opts.checks);
   }
 
-  return { ...result, status: "fixed", changedFiles: await changedSince(projectDir, originals) };
+  const evidence = [
+    `OSV reports no known vulnerabilities for ${dep.name}@${actual}`,
+    opts.checks.length ? `checks pass after the upgrade: ${opts.checks.join(", ")}` : "no checks configured (semver-compatible upgrade)",
+  ];
+  if (result.attempts) evidence.push(`code repaired by the model in ${result.attempts} round(s)`);
+  return { ...result, status: "fixed", evidence, changedFiles: await changedSince(projectDir, originals) };
 }
