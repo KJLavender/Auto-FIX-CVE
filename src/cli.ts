@@ -3,10 +3,13 @@ import path from "node:path";
 import { createInterface } from "node:readline/promises";
 import { Command } from "commander";
 import pc from "picocolors";
+import { backportFinding, canBackport } from "./backport/backport.js";
+import { appliedBackports, MANIFEST, readManifest } from "./backport/manifest.js";
+import { runPoc } from "./backport/poc.js";
 import { detectChecks } from "./fix/context.js";
 import { run } from "./fix/exec.js";
-import { fixFinding, planFinding, verifyBaseline, type FixResult } from "./fix/upgrade.js";
-import { ClaudeCliBackend, DEFAULT_MODEL } from "./llm/backend.js";
+import { fixFinding, planFinding, readInstalledVersion, verifyBaseline, type FixResult } from "./fix/upgrade.js";
+import { CliBackend, DEFAULT_MODEL } from "./llm/backend.js";
 import { OsvClient } from "./osv/client.js";
 import { formatFixSummary, formatPlan, formatReport } from "./report.js";
 import { scan } from "./scan.js";
@@ -37,6 +40,14 @@ program
   .action(async (dir: string, opts: { json?: boolean; dev: boolean; maxUsages: number }) => {
     const findings = await scan(path.resolve(dir), { includeDev: opts.dev });
     console.log(opts.json ? JSON.stringify(findings, null, 2) : formatReport(findings, opts.maxUsages));
+    const manifest = await readManifest(path.resolve(dir));
+    if (manifest.backports.length && !opts.json) {
+      const applied = await appliedBackports(path.resolve(dir), manifest);
+      for (const b of manifest.backports) {
+        const label = applied.includes(b) ? pc.green("backported") : pc.red("backport NOT applied (run npm install)");
+        console.log(`${label}  ${b.package}@${b.version}  ${pc.dim(b.vulns.join(", "))}`);
+      }
+    }
     process.exitCode = findings.length ? 1 : 0;
   });
 
@@ -49,6 +60,8 @@ program
   .option("--max-attempts <n>", "model repair rounds per package", (v) => Number.parseInt(v, 10), 3)
   .option("--no-dev", "ignore dev-only dependencies")
   .option("--no-breaking", "only apply semver-compatible upgrades")
+  .option("--no-backport", "never port upstream fixes into installed packages")
+  .option("--prefer-backport", "backport instead of making a breaking upgrade")
   .option("--dry-run", "show the plan and exit without changing anything")
   .option("-y, --yes", "apply the plan without asking (for CI)")
   .option("--allow-dirty", "run even if the git working tree has uncommitted changes")
@@ -62,6 +75,8 @@ program
         maxAttempts: number;
         dev: boolean;
         breaking: boolean;
+        backport: boolean;
+        preferBackport?: boolean;
         dryRun?: boolean;
         yes?: boolean;
         allowDirty?: boolean;
@@ -86,7 +101,7 @@ program
       }
 
       const checks = opts.check ?? (await detectChecks(projectDir));
-      const policy = { checks, allowBreaking: opts.breaking };
+      const policy = { checks, allowBreaking: opts.breaking, backport: opts.backport, preferBackport: !!opts.preferBackport };
       const seen = new Set<string>();
       const plan = findings
         .filter((f) => !seen.has(f.dependency.name) && seen.add(f.dependency.name))
@@ -107,15 +122,25 @@ program
       const fixOpts = {
         ...policy,
         maxAttempts: opts.maxAttempts,
-        backend: new ClaudeCliBackend(),
+        backend: new CliBackend(),
         osv: new OsvClient(),
         log,
       };
       log(`Model: ${DEFAULT_MODEL}`);
       const results: FixResult[] = [];
       for (const step of plan) {
-        log(`\n${step.finding.dependency.name}@${step.finding.dependency.version}`);
-        results.push(await fixFinding(projectDir, step.finding, fixOpts));
+        const { finding } = step;
+        log(`\n${finding.dependency.name}@${finding.dependency.version}`);
+        if (step.action === "backport") {
+          results.push(await backportFinding(projectDir, finding, fixOpts));
+          continue;
+        }
+        const result = await fixFinding(projectDir, finding, fixOpts);
+        results.push(result);
+        if (result.status === "failed" && policy.backport && canBackport(finding)) {
+          log("  upgrade failed; falling back to a backport");
+          results.push(await backportFinding(projectDir, finding, fixOpts));
+        }
       }
 
       log("\nRescanning…");
@@ -125,6 +150,37 @@ program
       process.exitCode = results.some((r) => r.status !== "fixed") ? 1 : 0;
     },
   );
+
+program
+  .command("verify")
+  .description("Re-run the stored PoCs for every backport; fails if any vulnerability is back (use in CI)")
+  .argument("[dir]", "project directory", ".")
+  .action(async (dir: string) => {
+    const projectDir = path.resolve(dir);
+    const { backports } = await readManifest(projectDir);
+    if (backports.length === 0) {
+      console.log(`No backports recorded in ${MANIFEST}.`);
+      return;
+    }
+    let bad = 0;
+    for (const b of backports) {
+      const installed = await readInstalledVersion(projectDir, b.package);
+      if (installed !== b.version) {
+        console.log(`${pc.yellow("STALE")}  ${b.package}: patch is for ${b.version}, installed ${installed ?? "nothing"}`);
+        continue;
+      }
+      for (const poc of b.pocs) {
+        const res = await runPoc(projectDir, path.join(projectDir, poc));
+        const label = res.verdict === "safe" ? pc.green("SAFE") : pc.red(res.verdict.toUpperCase());
+        console.log(`${label}  ${b.package}@${b.version}  ${poc}`);
+        if (res.verdict !== "safe") {
+          bad++;
+          console.log(pc.dim(res.output));
+        }
+      }
+    }
+    process.exitCode = bad ? 1 : 0;
+  });
 
 program.parseAsync().catch((err: unknown) => {
   console.error(pc.red(err instanceof Error ? err.message : String(err)));

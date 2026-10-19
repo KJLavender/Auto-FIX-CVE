@@ -1,12 +1,13 @@
 import { existsSync } from "node:fs";
-import { readFile, rm, writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import semver from "semver";
+import { canBackport } from "../backport/backport.js";
 import type { LlmBackend } from "../llm/backend.js";
 import type { OsvClient } from "../osv/client.js";
 import type { Finding } from "../types.js";
 import { changelogExcerpt, exportShape, relevantFiles } from "./context.js";
-import { applyEdits, type Edit } from "./edits.js";
+import { applyEdits, changedSince, restoreFiles, type Edit } from "./edits.js";
 import { run, tail } from "./exec.js";
 
 export type FixStatus = "fixed" | "skipped" | "failed";
@@ -15,7 +16,7 @@ export interface FixResult {
   package: string;
   from: string;
   to?: string;
-  strategy: "upgrade" | "override" | "none";
+  strategy: "upgrade" | "override" | "backport" | "none";
   status: FixStatus;
   reason?: string;
   /** LLM rounds used to repair the code after the upgrade. */
@@ -25,9 +26,7 @@ export interface FixResult {
   costUsd: number;
 }
 
-export interface FixOptions {
-  checks: string[];
-  allowBreaking: boolean;
+export interface FixOptions extends PlanPolicy {
   maxAttempts: number;
   backend: LlmBackend;
   osv: OsvClient;
@@ -89,17 +88,10 @@ function detectIndent(json: string): string | number {
   return json.match(/^[ \t]+(?=")/m)?.[0] ?? 2;
 }
 
-async function readInstalledVersion(projectDir: string, name: string): Promise<string | undefined> {
+export async function readInstalledVersion(projectDir: string, name: string): Promise<string | undefined> {
   const file = path.join(projectDir, "node_modules", name, "package.json");
   if (!existsSync(file)) return undefined;
   return (JSON.parse(await readFile(file, "utf8")) as { version: string }).version;
-}
-
-async function restore(originals: Map<string, string | null>): Promise<void> {
-  for (const [abs, content] of originals) {
-    if (content === null) await rm(abs, { force: true });
-    else await writeFile(abs, content, "utf8");
-  }
 }
 
 function buildPrompt(
@@ -134,29 +126,38 @@ function buildPrompt(
 
 export interface PlanStep {
   finding: Finding;
-  action: "upgrade" | "override" | "skip";
+  action: "upgrade" | "override" | "backport" | "skip";
   reason?: string;
 }
 
 export interface PlanPolicy {
   checks: string[];
   allowBreaking: boolean;
+  /** Allow porting upstream fixes into the installed version. */
+  backport: boolean;
+  /** Backport instead of a breaking upgrade even when the upgrade is allowed. */
+  preferBackport: boolean;
 }
 
 /** Decides what `fix` would do for a finding, without touching anything. */
 export function planFinding(finding: Finding, policy: PlanPolicy): PlanStep {
   const dep = finding.dependency;
   const to = finding.safeVersion;
+  const backportable = policy.backport && canBackport(finding);
   const skip = (reason: string): PlanStep => ({ finding, action: "skip", reason });
-  if (!to) return skip("no fixed version published; needs a backport");
+  const backportOr = (reason: string, why: string): PlanStep =>
+    backportable ? { finding, action: "backport", reason: why } : skip(`${reason}; no backport possible`);
+
+  if (!to) return backportOr("no fixed release", "no fixed release");
   // Security fixes only ever move forward; a downgrade could reintroduce older bugs.
   if (!semver.gt(to, dep.version)) return skip(`refusing to move from ${dep.version} to ${to} (not an upgrade)`);
-  if (!dep.direct && finding.breaking) {
-    return skip(`transitive dependency needs a breaking upgrade (via ${dep.introducedBy.join(", ")}); needs a backport`);
-  }
-  if (finding.breaking && !policy.allowBreaking) return skip("breaking upgrade not allowed (--no-breaking)");
-  if (finding.breaking && policy.checks.length === 0) {
-    return skip("breaking upgrade but no build/test command to verify it; pass --check");
+  if (finding.breaking) {
+    if (!dep.direct) return backportOr(`transitive, upgrade is breaking (via ${dep.introducedBy.join(", ")})`, "transitive breaking upgrade");
+    if (!policy.allowBreaking) return backportOr("breaking upgrade not allowed (--no-breaking)", "breaking upgrade not allowed");
+    if (policy.preferBackport && backportable) return { finding, action: "backport", reason: "--prefer-backport" };
+    if (policy.checks.length === 0) {
+      return backportOr("breaking upgrade with no build/test command to verify it (pass --check)", "no checks to verify an upgrade");
+    }
   }
   return { finding, action: dep.direct ? "upgrade" : "override" };
 }
@@ -174,8 +175,8 @@ export async function fixFinding(projectDir: string, finding: Finding, opts: Fix
     explanations: [],
     costUsd: 0,
   };
-  const step = planFinding(finding, { checks: opts.checks, allowBreaking: opts.allowBreaking });
-  if (step.action === "skip") return { ...result, reason: step.reason };
+  const step = planFinding(finding, opts);
+  if (step.action === "skip" || step.action === "backport") return { ...result, reason: step.reason };
   const to = finding.safeVersion!;
 
   const pkgPath = path.join(projectDir, "package.json");
@@ -199,7 +200,7 @@ export async function fixFinding(projectDir: string, finding: Finding, opts: Fix
 
   const rollback = async (reason: string): Promise<FixResult> => {
     opts.log(`  rolling back ${dep.name}: ${reason}`);
-    await restore(originals);
+    await restoreFiles(originals);
     await run("npm install", projectDir);
     return { ...result, status: "failed", reason, changedFiles: [] };
   };
@@ -231,7 +232,6 @@ export async function fixFinding(projectDir: string, finding: Finding, opts: Fix
   const shapes = { before, after: dep.direct ? await exportShape(projectDir, dep.name) : "" };
   const changelog = dep.direct ? await changelogExcerpt(projectDir, dep.name, dep.version) : undefined;
   const history: string[] = [];
-  const changed = new Set<string>();
 
   let check = await runChecks(projectDir, opts.checks);
   while (!check.ok) {
@@ -256,7 +256,7 @@ export async function fixFinding(projectDir: string, finding: Finding, opts: Fix
     if (output.edits.length === 0) return rollback(`model declined to edit: ${output.explanation}`);
 
     try {
-      for (const f of await applyEdits(projectDir, output.edits, originals)) changed.add(f);
+      await applyEdits(projectDir, output.edits, originals);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       history.push(`- Attempt ${result.attempts}: edits could not be applied (${message}). Copy "search" text exactly.`);
@@ -267,5 +267,5 @@ export async function fixFinding(projectDir: string, finding: Finding, opts: Fix
     check = await runChecks(projectDir, opts.checks);
   }
 
-  return { ...result, status: "fixed", changedFiles: ["package.json", "package-lock.json", ...changed] };
+  return { ...result, status: "fixed", changedFiles: await changedSince(projectDir, originals) };
 }

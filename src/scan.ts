@@ -1,4 +1,5 @@
 import semver from "semver";
+import { appliedBackports, mitigatedIds, readManifest } from "./backport/manifest.js";
 import { findUsages } from "./impact/analyze.js";
 import { readNpmLockfile } from "./lockfile/npm.js";
 import { OsvClient } from "./osv/client.js";
@@ -58,7 +59,15 @@ export async function scan(projectDir: string, options: ScanOptions): Promise<Fi
   const osv = new OsvClient();
   const hits = await osv.queryBatch(deps.map((d) => ({ name: d.name, version: d.version })));
 
-  const vulnerable = deps.flatMap((dep, i) => (hits[i].length ? [{ dep, ids: hits[i] }] : []));
+  // Vulnerabilities fixed by a verified backport for this exact version are not
+  // reported again, but only while the patch is really applied.
+  const manifest = await readManifest(projectDir);
+  manifest.backports = await appliedBackports(projectDir, manifest);
+  const vulnerable = deps.flatMap((dep, i) => {
+    const mitigated = mitigatedIds(manifest, dep.name, dep.version);
+    const ids = hits[i].filter((id) => !mitigated.has(id));
+    return ids.length ? [{ dep, ids }] : [];
+  });
   const usages = await findUsages(projectDir, [...new Set(vulnerable.map((v) => v.dep.name))]);
 
   const findings: Finding[] = [];

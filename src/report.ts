@@ -13,14 +13,16 @@ export function formatPlan(plan: PlanStep[], checks: string[]): string {
   for (const { finding: f, action, reason } of plan) {
     const d = f.dependency;
     const cves = f.vulns.length;
-    const head = `${pc.bold(d.name)} ${d.version}${f.safeVersion ? ` → ${f.safeVersion}` : ""}`;
+    const target = action === "backport" ? " (stays, patched)" : f.safeVersion ? ` → ${f.safeVersion}` : "";
+    const head = `${pc.bold(d.name)} ${d.version}${target}`;
     if (action === "skip") {
       out.push(`  ${pc.yellow("skip    ")} ${head}  ${pc.dim(reason ?? "")}`);
       continue;
     }
     const notes = [`${cves} vuln${cves === 1 ? "" : "s"}`, f.reachability];
-    if (f.breaking) notes.push(pc.yellow("breaking: model may edit your code"));
+    if (f.breaking && action === "upgrade") notes.push(pc.yellow("breaking: model may edit your code"));
     if (action === "override") notes.push(`via overrides, pulled in by ${d.introducedBy.join(", ")}`);
+    if (action === "backport") notes.push(`${reason}: port upstream fix into ${d.version}, prove it with a PoC, keep it via postinstall`);
     out.push(`  ${pc.green(action.padEnd(8))} ${head}  ${pc.dim(notes.join(", "))}`);
   }
   out.push(pc.dim(`  verify with: ${checks.length ? checks.join(" → ") : "(none found)"}`));
@@ -31,7 +33,7 @@ export function formatPlan(plan: PlanStep[], checks: string[]): string {
 export function formatFixSummary(results: FixResult[], remaining: Finding[]): string {
   const out: string[] = [pc.bold("\nFix summary")];
   for (const r of results) {
-    const target = r.to ? ` → ${r.to}` : "";
+    const target = r.strategy === "backport" ? " (patched in place)" : r.to ? ` → ${r.to}` : "";
     out.push(`${STATUS_LABEL[r.status]}  ${pc.bold(r.package)} ${r.from}${target}  ${pc.dim(r.strategy)}`);
     if (r.reason) out.push(`  ${pc.dim(r.reason)}`);
     if (r.attempts) out.push(`  ${pc.dim(`model repair rounds: ${r.attempts}, cost: $${r.costUsd.toFixed(4)}`)}`);

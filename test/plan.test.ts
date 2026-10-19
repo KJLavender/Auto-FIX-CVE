@@ -15,7 +15,7 @@ function finding(over: Partial<Finding> & { direct?: boolean; version?: string }
   };
 }
 
-const policy = { checks: ["npm test"], allowBreaking: true };
+const policy = { checks: ["npm test"], allowBreaking: true, backport: true, preferBackport: false };
 
 describe("planFinding", () => {
   it("upgrades direct deps and overrides transitive ones", () => {
@@ -35,6 +35,20 @@ describe("planFinding", () => {
       /--no-breaking/,
     );
     expect(planFinding(finding({ breaking: true, safeVersion: "2.0.0" }), { ...policy, checks: [] }).reason).toMatch(/--check/);
+  });
+
+  it("backports when an upgrade is impossible or unwanted, if a fix commit exists", () => {
+    const vulns = [{ id: "GHSA-x", aliases: [], summary: "", details: "", fixedVersions: [], fixCommits: ["https://github.com/o/r/commit/abc1234"] }];
+    const hoisted = (f: Finding) => ({ ...f, dependency: { ...f.dependency, paths: [`node_modules/${f.dependency.name}`] } });
+    const breaking = hoisted(finding({ breaking: true, safeVersion: "2.0.0", vulns }));
+    expect(planFinding(hoisted(finding({ safeVersion: undefined, vulns })), policy).action).toBe("backport");
+    expect(planFinding(hoisted(finding({ direct: false, breaking: true, safeVersion: "2.0.0", vulns })), policy).action).toBe("backport");
+    expect(planFinding(breaking, { ...policy, allowBreaking: false }).action).toBe("backport");
+    expect(planFinding(breaking, { ...policy, preferBackport: true }).action).toBe("backport");
+    expect(planFinding(breaking, policy).action).toBe("upgrade");
+    expect(planFinding(breaking, { ...policy, allowBreaking: false, backport: false }).action).toBe("skip");
+    // Not hoisted: the PoC could not load this copy by name.
+    expect(planFinding(finding({ breaking: true, safeVersion: "2.0.0", vulns }), { ...policy, preferBackport: true }).action).toBe("upgrade");
   });
 
   it("allows non-breaking upgrades without checks", () => {

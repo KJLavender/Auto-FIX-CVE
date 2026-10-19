@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 export interface Edit {
@@ -10,6 +10,29 @@ export interface Edit {
 }
 
 const PROTECTED = /(^|\/)(node_modules\/|package\.json$|package-lock\.json$|\.git\/)/;
+
+/** Puts files back as recorded by `applyEdits` / `snapshot`; files that did not exist are deleted. */
+export async function restoreFiles(originals: Map<string, string | null>): Promise<void> {
+  for (const [abs, content] of originals) {
+    if (content === null) await rm(abs, { force: true });
+    else await writeFile(abs, content, "utf8");
+  }
+}
+
+/** Records a file's current content (null if missing) unless it was recorded already. */
+export async function snapshot(originals: Map<string, string | null>, abs: string): Promise<void> {
+  if (!originals.has(abs)) originals.set(abs, existsSync(abs) ? await readFile(abs, "utf8") : null);
+}
+
+/** Project-relative paths of recorded files whose content differs from the snapshot. */
+export async function changedSince(projectDir: string, originals: Map<string, string | null>): Promise<string[]> {
+  const changed: string[] = [];
+  for (const [abs, before] of originals) {
+    const now = existsSync(abs) ? await readFile(abs, "utf8") : null;
+    if (now !== before) changed.push(path.relative(projectDir, abs).split(path.sep).join("/"));
+  }
+  return changed;
+}
 
 export function resolveInProject(projectDir: string, file: string): string {
   const abs = path.resolve(projectDir, file);
@@ -51,7 +74,7 @@ export async function applyEdits(
   }
 
   for (const [abs, content] of pending) {
-    if (!originals.has(abs)) originals.set(abs, existsSync(abs) ? await readFile(abs, "utf8") : null);
+    await snapshot(originals, abs);
     await mkdir(path.dirname(abs), { recursive: true });
     await writeFile(abs, content, "utf8");
   }

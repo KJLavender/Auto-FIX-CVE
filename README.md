@@ -2,36 +2,44 @@
 
 **English** | [繁體中文](README.zh-TW.md)
 
-Most dependency scanners stop at "upgrade to vX". Auto-FIX-CVE is being built to close the loop: find the CVE, locate the exact lines in **your** code that use the vulnerable API, then fix it, either by upgrading and rewriting the code that breaks or by backporting the upstream patch when you can't upgrade, and verify the result.
+Most dependency scanners stop at "upgrade to vX". Auto-FIX-CVE closes the loop. It finds the CVE and locates the exact lines in **your** code that use the vulnerable API. Then it fixes the problem in one of two ways: upgrade and repair the code that breaks, or, when you can't upgrade, backport the upstream patch into the version you have. Every fix is verified, and anything that fails verification is rolled back.
 
-> Status: early development. For npm projects, scanning, impact analysis and the upgrade path (strategy A) work. Backporting (strategy B) and PR generation are on the roadmap.
+> Status: early development, npm projects only. Scanning, impact analysis, the upgrade path and the backport path all work. PR generation, a GitHub Action and Python support are on the roadmap.
 
 ## How it works
 
 ```
 1. Scan        package-lock.json → OSV.dev → CVEs, fixed versions, fix commits
 2. Impact      AST analysis finds every import / call of the vulnerable package
-3. Strategy    A) upgrade + LLM rewrites broken call sites until tests pass
-               B) backport the upstream fix commit as a patch-package patch
-4. Verify      tests pass, rescan is clean, PoC (if any) no longer works
-5. Report      open a PR with the CVE, chosen strategy, diff and evidence
+3. Plan        upgrade, override (transitive), backport or skip; you confirm first
+4. Fix         A) upgrade; if your checks fail, the LLM repairs the call sites
+               B) backport: port the upstream fix commit into the installed version
+5. Verify      your checks pass, rescan is clean, and for backports a PoC that
+               reproduced the bug before the patch passes after it
 ```
 
-What already sets the scanner apart:
+What sets it apart:
 
-- **Safe version that is actually safe.** The suggested upgrade target is re-checked against OSV, so you never upgrade into a different CVE.
+- **The safe version really is safe.** Every suggested upgrade target is re-checked against OSV, so an upgrade never lands on a different CVE.
 - **Reachability hints.** Each finding is labelled `LIKELY REACHABLE`, `imported` or `not imported`. A usage is flagged when the API it calls (e.g. `_.template`) is named in the advisory.
-- **Breaking-change awareness.** Semver-breaking upgrades are flagged, including `0.x` minor bumps.
-- **Transitive provenance.** Transitive packages show which direct dependency pulls them in.
+- **Backports that are proven, not assumed.** A backport is kept only if a PoC reproduces the vulnerability on the unpatched package, passes on the patched one, and still passes after a clean reinstall.
+- **No new dependencies to fix old ones.** Backports are re-applied by a small, dependency-free postinstall script that is committed to your repo. In testing, adding `patch-package` for this pulled in a vulnerable transitive dependency of its own.
 
 ## Usage
 
-Requires Node.js ≥ 20 and a `package-lock.json` (lockfile v2/v3).
+Requires Node.js ≥ 20 and a `package-lock.json` (lockfile v2/v3). `fix` also needs a local LLM CLI (see [LLM backend](#llm-backend)).
 
 ```bash
 npm install
 npm run build
-node dist/cli.js scan path/to/project
+node dist/cli.js scan   path/to/project     # report CVEs and where your code uses them
+node dist/cli.js fix    path/to/project     # plan, confirm, fix, verify
+node dist/cli.js verify path/to/project     # re-run backport PoCs (for CI)
+```
+
+### Scan
+
+```bash
 node dist/cli.js scan path/to/project --json      # machine-readable
 node dist/cli.js scan path/to/project --no-dev    # skip dev-only deps
 ```
@@ -57,11 +65,12 @@ minimist@1.2.5  (direct)  not imported by your code
 ### Fix
 
 ```bash
-node dist/cli.js fix path/to/project                    # verify with typecheck/build/test scripts
+node dist/cli.js fix path/to/project --dry-run          # show the plan only
 node dist/cli.js fix path/to/project --check "npm test" # custom verification command(s)
 node dist/cli.js fix path/to/project --only marked      # one package
-node dist/cli.js fix path/to/project --dry-run          # show the plan only
 node dist/cli.js fix path/to/project --no-breaking      # semver-compatible upgrades only
+node dist/cli.js fix path/to/project --prefer-backport  # backport instead of breaking upgrades
+node dist/cli.js fix path/to/project --no-backport      # never patch installed packages
 node dist/cli.js fix path/to/project --yes              # no prompt (CI)
 ```
 
@@ -69,7 +78,7 @@ node dist/cli.js fix path/to/project --yes              # no prompt (CI)
 
 ```
 Plan
-  skip     axios 0.21.0 → 0.34.0  breaking upgrade but no build/test command to verify it; pass --check
+  skip     axios 0.21.0 → 0.34.0  breaking upgrade with no build/test command to verify it (pass --check); no backport possible
   upgrade  lodash 4.17.20 → 4.18.0  5 vulns, likely
   upgrade  minimist 1.2.5 → 1.2.6  1 vuln, not-imported
   verify with: (none found)
@@ -77,38 +86,110 @@ Plan
 Apply 2 change(s)? [y/N]
 ```
 
+How it picks an action:
+
+| Situation | Action |
+|---|---|
+| Fixed version is semver-compatible | **upgrade** (direct) or **override** (transitive) |
+| Fixed version is breaking, checks exist | **upgrade**, and the LLM repairs code if checks fail |
+| Breaking and `--prefer-backport` / `--no-breaking`, or no checks to verify | **backport** |
+| Transitive dependency that needs a breaking upgrade | **backport** |
+| No fixed release yet, but an upstream fix commit exists | **backport** |
+| Upgrade failed after all repair attempts | rolled back, then **backport** |
+| No fix commit to port | **skip** |
+
 Safety rules:
 
 - **Never downgrades.** It only moves to the smallest version above the current one that OSV reports as clean.
 - **Asks first.** Without a terminal it refuses to run unless you pass `--yes`.
-- **Breaking upgrades need proof.** They are only attempted when there is a build/test command to verify them, and `--no-breaking` turns them off entirely. A transitive dependency that needs a breaking upgrade is skipped (left for the backport path).
-- **Won't hang on prompts.** Child commands run without stdin and with `CI=1`, so anything that would wait for a `y` fails instead, and `npx` never downloads packages on its own.
+- **Rolls back failures.** `package.json`, the lockfile, every edited file and `node_modules` are restored.
+- **Won't hang on prompts.** Child commands run without stdin and with `CI=1`, so anything waiting for a `y` fails instead, and `npx` never downloads packages on its own.
 - **Refuses a dirty git tree** (override with `--allow-dirty`) so the result is easy to review with `git diff`.
 
-For each package in the plan, `fix`:
+#### Upgrade path
 
-1. Confirms your checks pass **before** touching anything.
-2. Upgrades to the verified safe version (direct deps via `package.json`, non-breaking transitive deps via `overrides`). If the caret range resolves to a newer version, that version is checked against OSV too.
-3. Runs the checks. If they fail, it sends the model the failing output, the usage sites, the package's runtime exports **before vs. after** the upgrade, its changelog, and the relevant files. The model answers with exact search/replace edits.
-4. Repeats up to `--max-attempts` (default 3). If the checks still fail, it **rolls back** `package.json`, the lockfile, every edited file and `node_modules`.
-5. Rescans and leaves the changes in your working tree for review.
-
-The model is called through the local [Claude Code](https://docs.claude.com/en/docs/claude-code) CLI in headless mode (`claude -p --json-schema`), so it uses your Claude subscription and needs no API key. Defaults to `claude-sonnet-5-5`. Override with `AUTOFIX_MODEL`, `AUTOFIX_EFFORT` (default `medium`) and `AUTOFIX_CLAUDE_BIN`.
+1. Confirms your checks (typecheck/build/test scripts, or `--check`) pass **before** touching anything.
+2. Upgrades. If the caret range resolves to a newer version, that version is checked against OSV too.
+3. If the checks fail, the LLM gets the failing output, the usage sites, the package's runtime exports **before and after** the upgrade, its changelog and the relevant files. It answers with exact search/replace edits.
+4. Repeats up to `--max-attempts` (default 3), otherwise rolls back.
 
 Example (from `test/fixtures/breaking-app`, where marked 4 removed the callable module export):
 
 ```
-marked@2.1.3
-  upgrade marked 2.1.3 → 4.0.10
-  `npm test` fails; asking the model for a fix (attempt 1/3)
-
 FIXED  marked 2.1.3 → 4.3.0  upgrade
   model repair rounds: 1, cost: $0.0260
   model: marked 4.x no longer exports the module as a function; it exposes a named `marked` export. ...
   changed: package.json, package-lock.json, src/render.js
+```
 
+#### Backport path
+
+1. Downloads the fix commits linked from the advisory and separates library changes from upstream tests.
+2. **Proves the bug.** The LLM writes a PoC check from the advisory and the upstream tests. It must report *vulnerable* on the installed version, otherwise that CVE is left open and reported.
+3. Finds every shipped copy of the vulnerable code (source, CJS and ESM bundles, minified builds) and has the LLM port the fix into each of them.
+4. Re-runs every PoC until all pass, then runs your checks.
+5. Saves the edits to `.autofix-cve/patches/<pkg>@<version>.json` and adds `node .autofix-cve/apply-patches.cjs` to `postinstall`.
+6. Deletes the package, reinstalls, and runs the PoCs again, so the patch is proven to survive `npm install` / `npm ci`.
+
+Example (`fix --prefer-backport` on `test/fixtures/breaking-app`):
+
+```
+marked@2.1.3
+  backport marked@2.1.3: 2 fix(es) downloaded
+  GHSA-5v2h-r2cx-5xgj: reproduced on 2.1.3
+  GHSA-rrrm-qjm4-v8hf: reproduced on 2.1.3
+  porting the fix (attempt 1/3)
+  all 2 PoC(s) pass after patching
+  patch re-applied by postinstall and verified after a clean reinstall
+
+FIXED  marked 2.1.3 (patched in place)  backport
+  model: Ported the ReDoS fix ... Applied to src/rules.js, lib/marked.esm.js, lib/marked.js and marked.min.js.
 Rescan is clean.
 ```
+
+Files a backport adds to your repo:
+
+```
+.autofix-cve.json                         which CVEs are backported, for which exact version
+.autofix-cve/apply-patches.cjs            dependency-free postinstall script
+.autofix-cve/patches/marked@2.1.3.json    the search/replace edits
+.autofix-cve/poc/GHSA-….cjs               the PoCs that proved the fix
+```
+
+`scan` treats those CVEs as fixed **only for that exact version and only while the patch is actually applied**. If the package version changes, or an install skipped scripts, the CVEs are reported again.
+
+### Verify (CI)
+
+```bash
+node dist/cli.js verify path/to/project
+```
+
+Re-runs every stored PoC and exits `1` if any vulnerability is back, for example after an install with `--ignore-scripts`.
+
+```
+VULNERABLE  marked@2.1.3  .autofix-cve/poc/GHSA-5v2h-r2cx-5xgj.cjs
+[autofix-cve] command timed out after 10s
+```
+
+## Security model
+
+Advisory text and upstream diffs are untrusted input to the LLM, so its output is constrained:
+
+- Code edits are exact search/replace operations. They cannot touch `package.json`, lockfiles or anything outside the project, and backport edits stay inside the one package being patched.
+- PoC scripts run under the Node.js permission model (`--permission`): read-only access to the project, no file writes, no child processes, no native addons, and a 10 s timeout.
+- Nothing is kept unless your checks pass, and for backports the PoCs too.
+
+## LLM backend
+
+The LLM is called through a local CLI in headless mode (`-p --output-format json --json-schema …`) with tools, settings and session history disabled. That means it runs on your existing subscription and needs no API key. Configuration:
+
+| Variable | Default | |
+|---|---|---|
+| `AUTOFIX_MODEL` | Sonnet 5.5 | model id |
+| `AUTOFIX_EFFORT` | `medium` | reasoning effort |
+| `AUTOFIX_LLM_BIN` | CLI on `PATH` | path to the CLI executable |
+
+Typical cost in the examples above: $0.02–0.03 per upgrade repair, about $0.07 per backport (two PoCs plus the port).
 
 ## Development
 
@@ -125,10 +206,11 @@ The fixtures under `test/fixtures/` are intentionally vulnerable. Copy them to a
 - [x] npm lockfile parsing with dependency provenance
 - [x] OSV lookup, safe-version search, fix-commit extraction
 - [x] AST-based usage analysis (ESM, CommonJS, dynamic import, re-exports)
-- [x] Upgrade path: apply upgrade, run build/tests, LLM-guided fixes with rollback (Claude Sonnet 5.5)
-- [ ] Backport path: port fix commit to the installed version via patch-package
-- [ ] Verification and PR generation
+- [x] Upgrade path with LLM repair and rollback
+- [x] Backport path with PoC proof, dependency-free persistence and `verify`
+- [ ] PR generation with the evidence attached
 - [ ] GitHub Action
+- [ ] yarn / pnpm lockfiles
 - [ ] Python (pip / poetry / uv) support
 
 ## License
