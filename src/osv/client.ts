@@ -1,0 +1,120 @@
+import semver from "semver";
+import type { Vulnerability } from "../types.js";
+
+const OSV_API = "https://api.osv.dev/v1";
+const BATCH_SIZE = 1000;
+const CONCURRENCY = 8;
+
+interface OsvVuln {
+  id: string;
+  summary?: string;
+  details?: string;
+  aliases?: string[];
+  database_specific?: { severity?: string };
+  references?: { type: string; url: string }[];
+  affected?: {
+    package?: { name: string; ecosystem: string };
+    ranges?: { type: string; events: { introduced?: string; fixed?: string }[] }[];
+  }[];
+}
+
+export interface PackageQuery {
+  name: string;
+  version: string;
+}
+
+// OSV tags most fix links as WEB rather than FIX, so match on URL shape instead.
+const FIX_URL = /github\.com\/[^/]+\/[^/]+\/(commit\/[0-9a-f]{7,40}|pull\/\d+)/i;
+// Edits to advisory databases look like fix PRs but contain no code fix.
+const ADVISORY_DB = /github\.com\/(github\/advisory-database|advisories)\//i;
+
+export class OsvClient {
+  private vulnCache = new Map<string, Promise<OsvVuln>>();
+
+  /** Returns the vulnerability ids affecting each query, in the same order. */
+  async queryBatch(queries: PackageQuery[]): Promise<string[][]> {
+    const out: string[][] = [];
+    for (let i = 0; i < queries.length; i += BATCH_SIZE) {
+      const chunk = queries.slice(i, i + BATCH_SIZE);
+      const res = await fetch(`${OSV_API}/querybatch`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          queries: chunk.map((q) => ({ package: { name: q.name, ecosystem: "npm" }, version: q.version })),
+        }),
+      });
+      if (!res.ok) throw new Error(`OSV querybatch failed: ${res.status} ${await res.text()}`);
+      const body = (await res.json()) as { results: { vulns?: { id: string }[] }[] };
+      for (const r of body.results) out.push((r.vulns ?? []).map((v) => v.id));
+    }
+    return out;
+  }
+
+  private fetchVuln(id: string): Promise<OsvVuln> {
+    let cached = this.vulnCache.get(id);
+    if (!cached) {
+      cached = fetch(`${OSV_API}/vulns/${encodeURIComponent(id)}`).then(async (res) => {
+        if (!res.ok) throw new Error(`OSV vulns/${id} failed: ${res.status}`);
+        return (await res.json()) as OsvVuln;
+      });
+      this.vulnCache.set(id, cached);
+    }
+    return cached;
+  }
+
+  async getVulns(ids: string[], packageName: string): Promise<Vulnerability[]> {
+    const results: Vulnerability[] = [];
+    for (let i = 0; i < ids.length; i += CONCURRENCY) {
+      const raw = await Promise.all(ids.slice(i, i + CONCURRENCY).map((id) => this.fetchVuln(id)));
+      results.push(...raw.map((v) => toVulnerability(v, packageName)));
+    }
+    return results;
+  }
+
+  /**
+   * Finds the smallest version above `current` with no known vulnerabilities:
+   * start from the fixes for the current vulns, then re-query OSV so an upgrade
+   * never lands on a version that is vulnerable to something else.
+   */
+  async findSafeVersion(name: string, current: string, vulns: Vulnerability[]): Promise<string | undefined> {
+    let candidate = current;
+    let pending = vulns;
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const base = candidate;
+      for (const v of pending) {
+        const fix = minimalFixAbove(v.fixedVersions, base);
+        if (!fix) return undefined;
+        if (semver.gt(fix, candidate)) candidate = fix;
+      }
+      const [ids] = await this.queryBatch([{ name, version: candidate }]);
+      if (ids.length === 0) return candidate;
+      pending = await this.getVulns(ids, name);
+    }
+    return undefined;
+  }
+}
+
+function minimalFixAbove(fixed: string[], version: string): string | undefined {
+  return fixed.filter((f) => semver.valid(f) && semver.gt(f, version)).sort(semver.compare)[0];
+}
+
+function toVulnerability(v: OsvVuln, packageName: string): Vulnerability {
+  const fixedVersions = new Set<string>();
+  for (const a of v.affected ?? []) {
+    if (a.package?.ecosystem !== "npm" || a.package.name !== packageName) continue;
+    for (const r of a.ranges ?? []) {
+      for (const e of r.events) if (e.fixed) fixedVersions.add(e.fixed);
+    }
+  }
+  return {
+    id: v.id,
+    aliases: v.aliases ?? [],
+    summary: v.summary ?? "",
+    details: v.details ?? "",
+    severity: v.database_specific?.severity,
+    fixedVersions: [...fixedVersions],
+    fixCommits: [
+      ...new Set((v.references ?? []).map((r) => r.url).filter((u) => FIX_URL.test(u) && !ADVISORY_DB.test(u))),
+    ],
+  };
+}

@@ -1,0 +1,11 @@
+{
+  "name": "breaking-app",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "marked": "^2.1.3"
+  }
+}

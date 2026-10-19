@@ -1,0 +1,34 @@
+{
+  "name": "autofix-cve",
+  "version": "0.1.0",
+  "description": "Find CVEs in your dependencies, locate where your code uses them, and fix them by upgrading or backporting.",
+  "type": "module",
+  "bin": {
+    "autofix-cve": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/cli.ts",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "commander": "^15.0.0",
+    "picocolors": "^1.1.1",
+    "semver": "^7.8.5",
+    "typescript": "~5.9.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "@types/semver": "^7.8.0",
+    "tsx": "^4.23.15",
+    "vitest": "^5.0.5"
+  }
+}

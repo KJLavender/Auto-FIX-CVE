@@ -1,0 +1,50 @@
+export interface Dependency {
+  name: string;
+  version: string;
+  /** Install locations in the lockfile, e.g. `node_modules/a/node_modules/b`. */
+  paths: string[];
+  /** Declared directly in the root package.json. */
+  direct: boolean;
+  /** Only installed as a dev dependency. */
+  dev: boolean;
+  /** Direct dependencies that pull this package in (itself, if direct). */
+  introducedBy: string[];
+}
+
+export interface Vulnerability {
+  id: string;
+  aliases: string[];
+  summary: string;
+  details: string;
+  severity?: string;
+  /** Versions that fix this vulnerability for the affected package. */
+  fixedVersions: string[];
+  /** Upstream commit / pull request URLs that contain the fix. */
+  fixCommits: string[];
+}
+
+export interface Usage {
+  file: string;
+  line: number;
+  column: number;
+  /** Module specifier as written in the source, e.g. `lodash/fp`. */
+  specifier: string;
+  /** The API being used, e.g. `template` for `_.template(...)`. */
+  symbol: string;
+  snippet: string;
+  /** Vulnerability ids whose advisory text mentions this symbol. */
+  mentionedBy: string[];
+}
+
+export type Reachability = "likely" | "imported" | "not-imported";
+
+export interface Finding {
+  dependency: Dependency;
+  vulns: Vulnerability[];
+  /** Smallest version that OSV reports as free of known vulnerabilities. */
+  safeVersion?: string;
+  /** True when upgrading to the safe version is a semver-breaking change. */
+  breaking: boolean;
+  usages: Usage[];
+  reachability: Reachability;
+}
