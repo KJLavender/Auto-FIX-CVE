@@ -3,6 +3,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import semver from "semver";
 import { canBackport } from "../backport/backport.js";
+import { readNpmLockfile } from "../lockfile/npm.js";
 import type { LlmBackend } from "../llm/backend.js";
 import type { OsvClient } from "../osv/client.js";
 import type { Finding } from "../types.js";
@@ -200,11 +201,14 @@ export async function fixFinding(projectDir: string, finding: Finding, opts: Fix
   const pkg = JSON.parse(pkgText) as Record<string, unknown> & { overrides?: Record<string, string> };
   const field = DEP_FIELDS.find((f) => (pkg[f] as Record<string, string> | undefined)?.[dep.name] !== undefined);
 
+  const direct = step.action === "upgrade" && field !== undefined;
   const writePkg = async (spec: string) => {
-    if (dep.direct && field) {
+    if (direct) {
       (pkg[field] as Record<string, string>)[dep.name] = spec;
     } else {
-      pkg.overrides = { ...pkg.overrides, [dep.name]: spec };
+      // Key the override on the exact vulnerable version, so other copies of the
+      // package (e.g. an unrelated older major) are left alone.
+      pkg.overrides = { ...pkg.overrides, [`${dep.name}@${dep.version}`]: spec };
     }
     await writeFile(pkgPath, JSON.stringify(pkg, null, detectIndent(pkgText)) + "\n", "utf8");
   };
@@ -216,8 +220,8 @@ export async function fixFinding(projectDir: string, finding: Finding, opts: Fix
     return { ...result, status: "failed", reason, changedFiles: [] };
   };
 
-  result.strategy = step.action === "upgrade" && field ? "upgrade" : "override";
-  const before = dep.direct ? await exportShape(projectDir, dep.name) : "";
+  result.strategy = direct ? "upgrade" : "override";
+  const before = direct ? await exportShape(projectDir, dep.name) : "";
   const oldSpec = field ? (pkg[field] as Record<string, string>)[dep.name] : undefined;
   const prefix = oldSpec?.match(/^[\^~]/)?.[0] ?? "";
 
@@ -227,7 +231,7 @@ export async function fixFinding(projectDir: string, finding: Finding, opts: Fix
   if (!install.ok) return rollback(`npm install failed:\n${tail(install.output, 2000)}`);
 
   // A caret range may resolve above the verified version; make sure that one is clean too.
-  const installed = await readInstalledVersion(projectDir, dep.name);
+  const installed = direct ? await readInstalledVersion(projectDir, dep.name) : to;
   if (installed && installed !== to) {
     const [ids] = await opts.osv.queryBatch([{ name: dep.name, version: installed }]);
     if (ids.length) {
@@ -237,11 +241,15 @@ export async function fixFinding(projectDir: string, finding: Finding, opts: Fix
       if (!install.ok) return rollback(`npm install failed:\n${tail(install.output, 2000)}`);
     }
   }
-  const actual = (await readInstalledVersion(projectDir, dep.name)) ?? to;
+  const actual = (direct ? await readInstalledVersion(projectDir, dep.name) : to) ?? to;
   result.to = actual;
 
-  const shapes = { before, after: dep.direct ? await exportShape(projectDir, dep.name) : "" };
-  const changelog = dep.direct ? await changelogExcerpt(projectDir, dep.name, dep.version) : undefined;
+  // The lockfile must no longer resolve the vulnerable version anywhere.
+  const stillThere = (await readNpmLockfile(projectDir)).some((d) => d.name === dep.name && d.version === dep.version);
+  if (stillThere) return rollback(`${dep.name}@${dep.version} is still installed after the change`);
+
+  const shapes = { before, after: direct ? await exportShape(projectDir, dep.name) : "" };
+  const changelog = direct ? await changelogExcerpt(projectDir, dep.name, dep.version) : undefined;
   const history: string[] = [];
 
   let check = await runChecks(projectDir, opts.checks);

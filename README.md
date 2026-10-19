@@ -91,7 +91,7 @@ How it picks an action:
 
 | Situation | Action |
 |---|---|
-| Fixed version is semver-compatible | **upgrade** (direct) or **override** (transitive) |
+| Fixed version is semver-compatible | **upgrade** (direct) or **override** (transitive, keyed on the exact vulnerable version such as `"qs@6.7.0": "6.16.0"`, so other copies of the package are untouched) |
 | Fixed version is breaking, checks exist | **upgrade**, and the LLM repairs code if checks fail |
 | Breaking and `--prefer-backport` / `--no-breaking`, or no checks to verify | **backport** |
 | Transitive dependency that needs a breaking upgrade | **backport** |

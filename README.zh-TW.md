@@ -91,7 +91,7 @@ Apply 2 change(s)? [y/N]
 
 | 情況 | 動作 |
 |---|---|
-| 修復版本與目前版本 semver 相容 | **upgrade**（直接依賴）或 **override**（遞移依賴） |
+| 修復版本與目前版本 semver 相容 | **upgrade**（直接依賴）或 **override**（遞移依賴；只針對有漏洞的確切版本，例如 `"qs@6.7.0": "6.16.0"`，同一套件的其他副本不受影響） |
 | 修復版本是破壞性升級，且有驗證指令 | **upgrade**，驗證失敗時由 LLM 修正程式碼 |
 | 破壞性升級，且指定了 `--prefer-backport` / `--no-breaking`，或沒有驗證指令 | **backport** |
 | 遞移依賴需要破壞性升級 | **backport** |

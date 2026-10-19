@@ -142,10 +142,8 @@ program
 
       const checks = opts.check ?? (await detectChecks(projectDir));
       const policy = { checks, allowBreaking: opts.breaking, backport: opts.backport, preferBackport: !!opts.preferBackport };
-      const seen = new Set<string>();
-      const plan = findings
-        .filter((f) => !seen.has(f.dependency.name) && seen.add(f.dependency.name))
-        .map((f) => planFinding(f, policy));
+      // One step per installed name@version: each copy of a package is fixed on its own.
+      const plan = findings.map((f) => planFinding(f, policy));
 
       (opts.json ? console.error : console.log)(formatPlan(plan, checks));
       const base = opts.pr ? await checkPrPrerequisites(projectDir) : undefined;
