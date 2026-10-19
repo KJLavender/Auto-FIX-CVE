@@ -22,7 +22,13 @@ function exec(
   timeoutMs: number,
 ): Promise<CommandResult> {
   return new Promise((resolve) => {
-    const child = spawn(file, args, { ...opts, env: { ...process.env, FORCE_COLOR: "0", NO_COLOR: "1" } });
+    // No stdin and CI-style env: a command that would prompt ("Ok to proceed? (y)")
+    // fails fast instead of hanging the run.
+    const child = spawn(file, args, {
+      ...opts,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, FORCE_COLOR: "0", NO_COLOR: "1", CI: "1", npm_config_yes: "false" },
+    });
     let output = "";
     const append = (d: Buffer) => (output += d.toString("utf8"));
     child.stdout.on("data", append);

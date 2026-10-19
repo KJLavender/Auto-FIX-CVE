@@ -1,5 +1,5 @@
 import pc from "picocolors";
-import type { FixResult, FixStatus } from "./fix/upgrade.js";
+import type { FixResult, FixStatus, PlanStep } from "./fix/upgrade.js";
 import type { Finding, Reachability } from "./types.js";
 
 const STATUS_LABEL: Record<FixStatus, string> = {
@@ -7,6 +7,26 @@ const STATUS_LABEL: Record<FixStatus, string> = {
   skipped: pc.yellow("SKIPPED"),
   failed: pc.red("FAILED"),
 };
+
+export function formatPlan(plan: PlanStep[], checks: string[]): string {
+  const out: string[] = [pc.bold("Plan")];
+  for (const { finding: f, action, reason } of plan) {
+    const d = f.dependency;
+    const cves = f.vulns.length;
+    const head = `${pc.bold(d.name)} ${d.version}${f.safeVersion ? ` → ${f.safeVersion}` : ""}`;
+    if (action === "skip") {
+      out.push(`  ${pc.yellow("skip    ")} ${head}  ${pc.dim(reason ?? "")}`);
+      continue;
+    }
+    const notes = [`${cves} vuln${cves === 1 ? "" : "s"}`, f.reachability];
+    if (f.breaking) notes.push(pc.yellow("breaking: model may edit your code"));
+    if (action === "override") notes.push(`via overrides, pulled in by ${d.introducedBy.join(", ")}`);
+    out.push(`  ${pc.green(action.padEnd(8))} ${head}  ${pc.dim(notes.join(", "))}`);
+  }
+  out.push(pc.dim(`  verify with: ${checks.length ? checks.join(" → ") : "(none found)"}`));
+  out.push(pc.dim("  Nothing is downgraded. Failed fixes are rolled back."));
+  return out.join("\n");
+}
 
 export function formatFixSummary(results: FixResult[], remaining: Finding[]): string {
   const out: string[] = [pc.bold("\nFix summary")];

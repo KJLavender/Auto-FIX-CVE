@@ -60,9 +60,32 @@ minimist@1.2.5  (direct)  not imported by your code
 node dist/cli.js fix path/to/project                    # verify with typecheck/build/test scripts
 node dist/cli.js fix path/to/project --check "npm test" # custom verification command(s)
 node dist/cli.js fix path/to/project --only marked      # one package
+node dist/cli.js fix path/to/project --dry-run          # show the plan only
+node dist/cli.js fix path/to/project --no-breaking      # semver-compatible upgrades only
+node dist/cli.js fix path/to/project --yes              # no prompt (CI)
 ```
 
-For each vulnerable package, `fix`:
+`fix` first prints a plan and asks before changing anything:
+
+```
+Plan
+  skip     axios 0.21.0 → 0.34.0  breaking upgrade but no build/test command to verify it; pass --check
+  upgrade  lodash 4.17.20 → 4.18.0  5 vulns, likely
+  upgrade  minimist 1.2.5 → 1.2.6  1 vuln, not-imported
+  verify with: (none found)
+  Nothing is downgraded. Failed fixes are rolled back.
+Apply 2 change(s)? [y/N]
+```
+
+Safety rules:
+
+- **Never downgrades.** It only moves to the smallest version above the current one that OSV reports as clean.
+- **Asks first.** Without a terminal it refuses to run unless you pass `--yes`.
+- **Breaking upgrades need proof.** They are only attempted when there is a build/test command to verify them, and `--no-breaking` turns them off entirely. A transitive dependency that needs a breaking upgrade is skipped (left for the backport path).
+- **Won't hang on prompts.** Child commands run without stdin and with `CI=1`, so anything that would wait for a `y` fails instead, and `npx` never downloads packages on its own.
+- **Refuses a dirty git tree** (override with `--allow-dirty`) so the result is easy to review with `git diff`.
+
+For each package in the plan, `fix`:
 
 1. Confirms your checks pass **before** touching anything.
 2. Upgrades to the verified safe version (direct deps via `package.json`, non-breaking transitive deps via `overrides`). If the caret range resolves to a newer version, that version is checked against OSV too.

@@ -60,9 +60,32 @@ minimist@1.2.5  (direct)  not imported by your code
 node dist/cli.js fix path/to/project                    # 用 typecheck/build/test scripts 驗證
 node dist/cli.js fix path/to/project --check "npm test" # 自訂驗證指令
 node dist/cli.js fix path/to/project --only marked      # 只修指定套件
+node dist/cli.js fix path/to/project --dry-run          # 只顯示計畫
+node dist/cli.js fix path/to/project --no-breaking      # 只做 semver 相容的升級
+node dist/cli.js fix path/to/project --yes              # 不詢問（CI 用）
 ```
 
-`fix` 對每個有漏洞的套件會依序：
+`fix` 會先列出計畫，問過你才動手：
+
+```
+Plan
+  skip     axios 0.21.0 → 0.34.0  breaking upgrade but no build/test command to verify it; pass --check
+  upgrade  lodash 4.17.20 → 4.18.0  5 vulns, likely
+  upgrade  minimist 1.2.5 → 1.2.6  1 vuln, not-imported
+  verify with: (none found)
+  Nothing is downgraded. Failed fixes are rolled back.
+Apply 2 change(s)? [y/N]
+```
+
+安全規則：
+
+- **絕不降版**：只會升到「比目前版本高、且 OSV 確認乾淨」的最小版本。
+- **先問再做**：沒有終端機可以確認時，除非加 `--yes`，否則拒絕執行。
+- **破壞性升級要有證據**：必須有 build/test 指令可以驗證才會嘗試；`--no-breaking` 可以完全關閉。遞移依賴需要破壞性升級時會跳過（留給 backport 路線處理）。
+- **不會卡在互動提示**：子程序沒有 stdin，並設定 `CI=1`，原本會等你按 `y` 的指令會直接失敗；`npx` 也不會自己下載套件。
+- **git 工作目錄不乾淨就拒絕執行**（可用 `--allow-dirty` 覆寫），方便事後用 `git diff` review。
+
+對計畫中的每個套件，`fix` 會依序：
 
 1. 在動任何東西**之前**，先確認驗證指令是通過的。
 2. 升級到已驗證的安全版本：直接依賴改 `package.json`，非破壞性的遞移依賴用 `overrides`。如果 caret 範圍實際裝到更新的版本，也會再查一次 OSV。

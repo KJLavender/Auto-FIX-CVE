@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import semver from "semver";
 import type { LlmBackend } from "../llm/backend.js";
 import type { OsvClient } from "../osv/client.js";
 import type { Finding } from "../types.js";
@@ -26,6 +27,7 @@ export interface FixResult {
 
 export interface FixOptions {
   checks: string[];
+  allowBreaking: boolean;
   maxAttempts: number;
   backend: LlmBackend;
   osv: OsvClient;
@@ -130,6 +132,35 @@ function buildPrompt(
   return parts.join("\n");
 }
 
+export interface PlanStep {
+  finding: Finding;
+  action: "upgrade" | "override" | "skip";
+  reason?: string;
+}
+
+export interface PlanPolicy {
+  checks: string[];
+  allowBreaking: boolean;
+}
+
+/** Decides what `fix` would do for a finding, without touching anything. */
+export function planFinding(finding: Finding, policy: PlanPolicy): PlanStep {
+  const dep = finding.dependency;
+  const to = finding.safeVersion;
+  const skip = (reason: string): PlanStep => ({ finding, action: "skip", reason });
+  if (!to) return skip("no fixed version published; needs a backport");
+  // Security fixes only ever move forward; a downgrade could reintroduce older bugs.
+  if (!semver.gt(to, dep.version)) return skip(`refusing to move from ${dep.version} to ${to} (not an upgrade)`);
+  if (!dep.direct && finding.breaking) {
+    return skip(`transitive dependency needs a breaking upgrade (via ${dep.introducedBy.join(", ")}); needs a backport`);
+  }
+  if (finding.breaking && !policy.allowBreaking) return skip("breaking upgrade not allowed (--no-breaking)");
+  if (finding.breaking && policy.checks.length === 0) {
+    return skip("breaking upgrade but no build/test command to verify it; pass --check");
+  }
+  return { finding, action: dep.direct ? "upgrade" : "override" };
+}
+
 export async function fixFinding(projectDir: string, finding: Finding, opts: FixOptions): Promise<FixResult> {
   const dep = finding.dependency;
   const result: FixResult = {
@@ -143,14 +174,9 @@ export async function fixFinding(projectDir: string, finding: Finding, opts: Fix
     explanations: [],
     costUsd: 0,
   };
-  const to = finding.safeVersion;
-  if (!to) return { ...result, reason: "no fixed version published; needs a backport" };
-  if (!dep.direct && finding.breaking) {
-    return { ...result, reason: `transitive dependency needs a breaking upgrade (via ${dep.introducedBy.join(", ")}); needs a backport` };
-  }
-  if (finding.breaking && opts.checks.length === 0) {
-    return { ...result, reason: "breaking upgrade but no build/test command to verify it; pass --check" };
-  }
+  const step = planFinding(finding, { checks: opts.checks, allowBreaking: opts.allowBreaking });
+  if (step.action === "skip") return { ...result, reason: step.reason };
+  const to = finding.safeVersion!;
 
   const pkgPath = path.join(projectDir, "package.json");
   const lockPath = path.join(projectDir, "package-lock.json");
@@ -178,7 +204,7 @@ export async function fixFinding(projectDir: string, finding: Finding, opts: Fix
     return { ...result, status: "failed", reason, changedFiles: [] };
   };
 
-  result.strategy = dep.direct && field ? "upgrade" : "override";
+  result.strategy = step.action === "upgrade" && field ? "upgrade" : "override";
   const before = dep.direct ? await exportShape(projectDir, dep.name) : "";
   const oldSpec = field ? (pkg[field] as Record<string, string>)[dep.name] : undefined;
   const prefix = oldSpec?.match(/^[\^~]/)?.[0] ?? "";

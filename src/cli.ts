@@ -1,14 +1,24 @@
 #!/usr/bin/env node
 import path from "node:path";
+import { createInterface } from "node:readline/promises";
 import { Command } from "commander";
 import pc from "picocolors";
 import { detectChecks } from "./fix/context.js";
 import { run } from "./fix/exec.js";
-import { fixFinding, verifyBaseline, type FixResult } from "./fix/upgrade.js";
+import { fixFinding, planFinding, verifyBaseline, type FixResult } from "./fix/upgrade.js";
 import { ClaudeCliBackend, DEFAULT_MODEL } from "./llm/backend.js";
 import { OsvClient } from "./osv/client.js";
-import { formatReport, formatFixSummary } from "./report.js";
+import { formatFixSummary, formatPlan, formatReport } from "./report.js";
 import { scan } from "./scan.js";
+
+async function confirm(question: string): Promise<boolean> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    return /^y(es)?$/i.test((await rl.question(question)).trim());
+  } finally {
+    rl.close();
+  }
+}
 
 const program = new Command();
 
@@ -38,12 +48,25 @@ program
   .option("--only <pkg...>", "only fix these packages")
   .option("--max-attempts <n>", "model repair rounds per package", (v) => Number.parseInt(v, 10), 3)
   .option("--no-dev", "ignore dev-only dependencies")
+  .option("--no-breaking", "only apply semver-compatible upgrades")
+  .option("--dry-run", "show the plan and exit without changing anything")
+  .option("-y, --yes", "apply the plan without asking (for CI)")
   .option("--allow-dirty", "run even if the git working tree has uncommitted changes")
   .option("--json", "print machine-readable JSON")
   .action(
     async (
       dir: string,
-      opts: { check?: string[]; only?: string[]; maxAttempts: number; dev: boolean; allowDirty?: boolean; json?: boolean },
+      opts: {
+        check?: string[];
+        only?: string[];
+        maxAttempts: number;
+        dev: boolean;
+        breaking: boolean;
+        dryRun?: boolean;
+        yes?: boolean;
+        allowDirty?: boolean;
+        json?: boolean;
+      },
     ) => {
       const projectDir = path.resolve(dir);
       const log = (m: string) => console.error(pc.dim(m));
@@ -63,11 +86,26 @@ program
       }
 
       const checks = opts.check ?? (await detectChecks(projectDir));
-      log(checks.length ? `Verification: ${checks.join(" → ")}` : "No verification commands found.");
+      const policy = { checks, allowBreaking: opts.breaking };
+      const seen = new Set<string>();
+      const plan = findings
+        .filter((f) => !seen.has(f.dependency.name) && seen.add(f.dependency.name))
+        .map((f) => planFinding(f, policy));
+
+      (opts.json ? console.error : console.log)(formatPlan(plan, checks));
+      const actionable = plan.filter((s) => s.action !== "skip");
+      if (opts.dryRun || actionable.length === 0) return;
+      if (!opts.yes) {
+        if (!process.stdin.isTTY) throw new Error("Not running in a terminal; pass --yes to apply the plan.");
+        if (!(await confirm(`Apply ${actionable.length} change(s)? [y/N] `))) {
+          console.log("Aborted; nothing was changed.");
+          return;
+        }
+      }
       if (checks.length) await verifyBaseline(projectDir, checks);
 
       const fixOpts = {
-        checks,
+        ...policy,
         maxAttempts: opts.maxAttempts,
         backend: new ClaudeCliBackend(),
         osv: new OsvClient(),
@@ -75,12 +113,9 @@ program
       };
       log(`Model: ${DEFAULT_MODEL}`);
       const results: FixResult[] = [];
-      const seen = new Set<string>();
-      for (const finding of findings) {
-        if (seen.has(finding.dependency.name)) continue;
-        seen.add(finding.dependency.name);
-        log(`\n${finding.dependency.name}@${finding.dependency.version}`);
-        results.push(await fixFinding(projectDir, finding, fixOpts));
+      for (const step of plan) {
+        log(`\n${step.finding.dependency.name}@${step.finding.dependency.version}`);
+        results.push(await fixFinding(projectDir, step.finding, fixOpts));
       }
 
       log("\nRescanning…");
