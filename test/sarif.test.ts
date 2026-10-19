@@ -19,6 +19,7 @@ const finding: Finding = {
     },
   ],
   safeVersion: "4.17.21",
+  unfixable: [],
   breaking: false,
   usages: [
     { file: "src/render.ts", line: 5, column: 20, specifier: "lodash", symbol: "template", snippet: "", mentionedBy: ["GHSA-35jh-r3h4-6jhm"] },

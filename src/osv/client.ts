@@ -18,6 +18,13 @@ interface OsvVuln {
   }[];
 }
 
+export interface SafeVersion {
+  /** Smallest upgrade that fixes everything fixable; undefined if nothing can be fixed by upgrading. */
+  version?: string;
+  /** Vulnerabilities with no fixed release, which an upgrade cannot address. */
+  unfixable: string[];
+}
+
 export interface PackageQuery {
   name: string;
   version: string;
@@ -72,25 +79,30 @@ export class OsvClient {
   }
 
   /**
-   * Finds the smallest version above `current` with no known vulnerabilities:
-   * start from the fixes for the current vulns, then re-query OSV so an upgrade
-   * never lands on a version that is vulnerable to something else.
+   * Finds the smallest version above `current` that fixes every vulnerability
+   * that has a fix: start from the fixes for the current vulns, then re-query
+   * OSV so an upgrade never lands on a version vulnerable to something else.
+   * Vulnerabilities with no fix anywhere are returned as `unfixable` instead of
+   * blocking the fixes that do exist.
    */
-  async findSafeVersion(name: string, current: string, vulns: Vulnerability[]): Promise<string | undefined> {
+  async findSafeVersion(name: string, current: string, vulns: Vulnerability[]): Promise<SafeVersion> {
+    const unfixable = new Set<string>();
     let candidate = current;
     let pending = vulns;
     for (let attempt = 0; attempt < 10; attempt++) {
       const base = candidate;
       for (const v of pending) {
         const fix = minimalFixAbove(v.fixedVersions, base);
-        if (!fix) return undefined;
-        if (semver.gt(fix, candidate)) candidate = fix;
+        if (!fix) unfixable.add(v.id);
+        else if (semver.gt(fix, candidate)) candidate = fix;
       }
+      if (candidate === current) return { unfixable: [...unfixable] };
       const [ids] = await this.queryBatch([{ name, version: candidate }]);
-      if (ids.length === 0) return candidate;
-      pending = await this.getVulns(ids, name);
+      const remaining = ids.filter((id) => !unfixable.has(id));
+      if (remaining.length === 0) return { version: candidate, unfixable: [...unfixable] };
+      pending = await this.getVulns(remaining, name);
     }
-    return undefined;
+    return { unfixable: [...unfixable] };
   }
 }
 

@@ -8,6 +8,7 @@ function finding(over: Partial<Finding> & { direct?: boolean; version?: string }
     dependency: { name: "pkg", version, paths: [], direct, dev: false, introducedBy: direct ? ["pkg"] : ["parent"] },
     vulns: [],
     safeVersion: "1.0.1",
+    unfixable: [],
     breaking: false,
     usages: [],
     reachability: "imported",

@@ -182,7 +182,7 @@ export async function fixFinding(projectDir: string, finding: Finding, opts: Fix
     attempts: 0,
     changedFiles: [],
     explanations: [],
-    fixedVulns: finding.vulns.map(describeVuln),
+    fixedVulns: finding.vulns.filter((v) => !finding.unfixable.includes(v.id)).map(describeVuln),
     evidence: [],
     costUsd: 0,
   };
@@ -283,5 +283,6 @@ export async function fixFinding(projectDir: string, finding: Finding, opts: Fix
     opts.checks.length ? `checks pass after the upgrade: ${opts.checks.join(", ")}` : "no checks configured (semver-compatible upgrade)",
   ];
   if (result.attempts) evidence.push(`code repaired by the model in ${result.attempts} round(s)`);
+  if (finding.unfixable.length) evidence.push(`still open, no fixed release exists yet: ${finding.unfixable.join(", ")}`);
   return { ...result, status: "fixed", evidence, changedFiles: await changedSince(projectDir, originals) };
 }

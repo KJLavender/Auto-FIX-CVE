@@ -20,6 +20,7 @@ export function formatPlan(plan: PlanStep[], checks: string[]): string {
       continue;
     }
     const notes = [`${cves} vuln${cves === 1 ? "" : "s"}`, f.reachability];
+    if (f.unfixable.length && action !== "backport") notes.push(`${f.unfixable.length} without a fixed release stay open`);
     if (f.breaking && action === "upgrade") notes.push(pc.yellow("breaking: model may edit your code"));
     if (action === "override") notes.push(`via overrides, pulled in by ${d.introducedBy.join(", ")}`);
     if (action === "backport") notes.push(`${reason}: port upstream fix into ${d.version}, prove it with a PoC, keep it via postinstall`);
@@ -85,9 +86,11 @@ export function formatReport(findings: Finding[], maxUsages = 10): string {
 
     if (f.safeVersion) {
       const note = f.breaking ? pc.yellow("  (breaking upgrade, may need code changes)") : "";
-      out.push(`  ${pc.green("→ safe version:")} ${f.safeVersion}${note}`);
-    } else {
-      out.push(`  ${pc.red("→ no safe version available; backport needed")}`);
+      const label = f.unfixable.length ? `→ upgrade fixes ${f.vulns.length - f.unfixable.length} of ${f.vulns.length}:` : "→ safe version:";
+      out.push(`  ${pc.green(label)} ${f.safeVersion}${note}`);
+    }
+    if (f.unfixable.length) {
+      out.push(`  ${pc.red("→ no fixed release yet:")} ${f.unfixable.join(", ")}`);
     }
 
     if (f.usages.length) {

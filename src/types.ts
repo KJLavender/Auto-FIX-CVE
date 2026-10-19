@@ -41,8 +41,10 @@ export type Reachability = "likely" | "imported" | "not-imported";
 export interface Finding {
   dependency: Dependency;
   vulns: Vulnerability[];
-  /** Smallest version that OSV reports as free of known vulnerabilities. */
+  /** Smallest version that OSV reports as free of every vulnerability that has a fix. */
   safeVersion?: string;
+  /** Vulnerability ids with no fixed release: upgrading cannot address them. */
+  unfixable: string[];
   /** True when upgrading to the safe version is a semver-breaking change. */
   breaking: boolean;
   usages: Usage[];

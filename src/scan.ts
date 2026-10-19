@@ -54,6 +54,22 @@ export function maxSeverity(vulns: Vulnerability[]): number {
   return Math.max(0, ...vulns.map((v) => SEVERITY_RANK[v.severity?.toUpperCase() ?? ""] ?? 0));
 }
 
+const CONCURRENCY = 8;
+
+/** Like Promise.all over `items`, with at most `limit` calls in flight; keeps input order. */
+export async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
+}
+
 export async function scan(projectDir: string, options: ScanOptions): Promise<Finding[]> {
   const deps = (await readLockfile(projectDir)).deps.filter((d) => options.includeDev || !d.dev);
   const osv = new OsvClient();
@@ -70,10 +86,9 @@ export async function scan(projectDir: string, options: ScanOptions): Promise<Fi
   });
   const usages = await findUsages(projectDir, [...new Set(vulnerable.map((v) => v.dep.name))]);
 
-  const findings: Finding[] = [];
-  for (const { dep, ids } of vulnerable) {
+  const findings = await mapLimit(vulnerable, CONCURRENCY, async ({ dep, ids }): Promise<Finding> => {
     const vulns = await osv.getVulns(ids, dep.name);
-    const safeVersion = await osv.findSafeVersion(dep.name, dep.version, vulns);
+    const { version: safeVersion, unfixable } = await osv.findSafeVersion(dep.name, dep.version, vulns);
     const depUsages = (usages.get(dep.name) ?? []).map((u) => ({ ...u }));
     markMentions(depUsages, vulns);
     const reachability: Reachability = depUsages.some((u) => u.mentionedBy.length)
@@ -81,15 +96,16 @@ export async function scan(projectDir: string, options: ScanOptions): Promise<Fi
       : depUsages.length
         ? "imported"
         : "not-imported";
-    findings.push({
+    return {
       dependency: dep,
       vulns,
       safeVersion,
+      unfixable,
       breaking: safeVersion !== undefined && isBreakingUpgrade(dep.version, safeVersion),
       usages: depUsages,
       reachability,
-    });
-  }
+    };
+  });
 
   return findings.sort(
     (a, b) =>
