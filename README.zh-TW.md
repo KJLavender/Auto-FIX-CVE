@@ -4,7 +4,7 @@
 
 大多數依賴掃描工具只會告訴你「升到 vX 就好」。Auto-FIX-CVE 會把流程做完：找出 CVE，定位**你的**程式碼裡哪幾行用到有漏洞的 API，再用兩種方式之一修好它。可以升級就升級，並修好升級後壞掉的程式碼；不能升級，就把上游的修補 backport 到你目前的版本。每個修補都會經過驗證，驗證沒過就 rollback。
 
-> 狀態：開發初期，目前只支援 npm 專案。掃描、影響分析、升級路線和 backport 路線都已可用；產生 PR、GitHub Action、Python 支援規劃中。
+> 狀態：開發初期。`scan` 支援 npm、pnpm、Yarn（classic 與 Berry）的 lockfile；`fix`（升級、backport、PR）目前支援 npm 專案。Python 支援規劃中。
 
 ## 運作方式
 
@@ -27,7 +27,7 @@
 
 ## 使用方式
 
-需要 Node.js ≥ 22.12 與 `package-lock.json`（lockfile v2/v3）。`fix` 另外需要本機的 LLM CLI（見 [LLM backend](#llm-backend)）。
+需要 Node.js ≥ 22.12 與 lockfile：`package-lock.json` / `npm-shrinkwrap.json`（v2/v3）、`pnpm-lock.yaml`（v6–v9）或 `yarn.lock`（v1 或 Berry）。`fix` 需要 `package-lock.json`。`fix` 另外需要本機的 LLM CLI（見 [LLM backend](#llm-backend)）。
 
 ```bash
 npm install
@@ -245,7 +245,8 @@ npm run dev -- scan test/fixtures/vuln-app
 - [x] Backport 路線：PoC 證明、零依賴的修補保存、`verify`
 - [x] 產生附上驗證證據的 PR
 - [x] GitHub Action 與 SARIF 上傳（code scanning 直接標註呼叫點）
-- [ ] yarn / pnpm lockfile
+- [x] 掃描 pnpm 與 Yarn lockfile
+- [ ] 修復 pnpm 與 Yarn 專案
 - [ ] 支援 Python（pip / poetry / uv）
 
 ## 授權

@@ -4,7 +4,7 @@
 
 Most dependency scanners stop at "upgrade to vX". Auto-FIX-CVE closes the loop. It finds the CVE and locates the exact lines in **your** code that use the vulnerable API. Then it fixes the problem in one of two ways: upgrade and repair the code that breaks, or, when you can't upgrade, backport the upstream patch into the version you have. Every fix is verified, and anything that fails verification is rolled back.
 
-> Status: early development, npm projects only. Scanning, impact analysis, the upgrade path and the backport path all work. PR generation, a GitHub Action and Python support are on the roadmap.
+> Status: early development. `scan` supports npm, pnpm and Yarn (classic and Berry) lockfiles. `fix` (upgrade, backport, PRs) supports npm projects. Python support is on the roadmap.
 
 ## How it works
 
@@ -27,7 +27,7 @@ What sets it apart:
 
 ## Usage
 
-Requires Node.js ≥ 22.12 and a `package-lock.json` (lockfile v2/v3). `fix` also needs a local LLM CLI (see [LLM backend](#llm-backend)).
+Requires Node.js ≥ 22.12 and a lockfile: `package-lock.json` / `npm-shrinkwrap.json` (v2/v3), `pnpm-lock.yaml` (v6–v9) or `yarn.lock` (v1 or Berry). `fix` needs `package-lock.json`. `fix` also needs a local LLM CLI (see [LLM backend](#llm-backend)).
 
 ```bash
 npm install
@@ -245,7 +245,8 @@ The fixtures under `test/fixtures/` are intentionally vulnerable. Copy them to a
 - [x] Backport path with PoC proof, dependency-free persistence and `verify`
 - [x] PR generation with the evidence attached
 - [x] GitHub Action with SARIF upload (code scanning alerts on call sites)
-- [ ] yarn / pnpm lockfiles
+- [x] Scan pnpm and Yarn lockfiles
+- [ ] Fix pnpm and Yarn projects
 - [ ] Python (pip / poetry / uv) support
 
 ## License

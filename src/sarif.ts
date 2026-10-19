@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { detectLockfile, lockfileLine } from "./lockfile/index.js";
 import type { Finding, Vulnerability } from "./types.js";
 
 // GitHub code scanning ranks alerts by this numeric score (CVSS-like, 0-10).
@@ -22,13 +23,6 @@ function location(uri: string, startLine: number, startColumn?: number, text?: s
   };
 }
 
-/** Line of `"node_modules/<name>": {` in package-lock.json, so alerts point at the installed entry. */
-function lockfileLine(lines: string[], name: string): number {
-  const key = `"node_modules/${name}"`;
-  const i = lines.findIndex((l) => l.trimStart().startsWith(key));
-  return i === -1 ? 1 : i + 1;
-}
-
 /**
  * Builds a SARIF 2.1.0 log: one alert per vulnerable package on its lockfile
  * entry, plus one per call site whose API the advisory names, so code
@@ -42,7 +36,8 @@ export async function toSarif(
 ): Promise<object> {
   // Code scanning resolves URIs against the repository root, which is where CI runs.
   const uri = (file: string) => path.relative(baseDir, path.join(projectDir, file)).split(path.sep).join("/");
-  const lock = (await readFile(path.join(projectDir, "package-lock.json"), "utf8")).split(/\r?\n/);
+  const { file: lockName, kind } = detectLockfile(projectDir);
+  const lock = (await readFile(path.join(projectDir, lockName), "utf8")).split(/\r?\n/);
   const rules = new Map<string, object>();
   const results: object[] = [];
 
@@ -72,7 +67,7 @@ export async function toSarif(
         message: {
           text: `${name}@${installed} is affected by ${cve ?? v.id}: ${v.summary}. ${fix} Reachability: ${f.reachability}.`,
         },
-        locations: [location(uri("package-lock.json"), lockfileLine(lock, name))],
+        locations: [location(uri(lockName), lockfileLine(kind, lock, name, installed))],
         relatedLocations: f.usages.slice(0, 20).map((u, i) => ({
           id: i,
           ...location(uri(u.file), u.line, u.column, `uses ${name} (${u.symbol})`),

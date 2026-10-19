@@ -1,0 +1,12 @@
+{
+  "name": "lock-sample",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "axios": "0.21.0",
+    "lodash": "^4.17.20"
+  },
+  "devDependencies": {
+    "minimist": "1.2.5"
+  }
+}

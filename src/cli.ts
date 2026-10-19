@@ -11,6 +11,7 @@ import { detectChecks } from "./fix/context.js";
 import { run } from "./fix/exec.js";
 import { fixFinding, planFinding, readInstalledVersion, verifyBaseline, type FixResult } from "./fix/upgrade.js";
 import { CliBackend, DEFAULT_MODEL } from "./llm/backend.js";
+import { detectLockfile } from "./lockfile/index.js";
 import { OsvClient } from "./osv/client.js";
 import { abandonBranch, checkPrPrerequisites, createBranch, openPr } from "./pr.js";
 import { formatFixSummary, formatPlan, formatReport } from "./report.js";
@@ -119,6 +120,11 @@ program
     ) => {
       const projectDir = path.resolve(dir);
       const log = (m: string) => console.error(pc.dim(m));
+
+      const lock = detectLockfile(projectDir);
+      if (lock.kind !== "npm") {
+        throw new Error(`fix supports npm projects (package-lock.json) for now; ${lock.file} can be scanned but not fixed yet.`);
+      }
 
       const status = await run("git status --porcelain", projectDir);
       if (status.ok && status.output.trim() && !opts.allowDirty) {

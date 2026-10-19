@@ -3,6 +3,8 @@ import path from "node:path";
 import type { Dependency } from "../types.js";
 
 interface LockEntry {
+  /** Set when the install location is an alias (`"foo": "npm:bar@^1"`): the real package name. */
+  name?: string;
   version?: string;
   dev?: boolean;
   link?: boolean;
@@ -48,8 +50,8 @@ function childNames(entry: LockEntry, includeDev: boolean): string[] {
   });
 }
 
-export async function readNpmLockfile(projectDir: string): Promise<Dependency[]> {
-  const lockPath = path.join(projectDir, "package-lock.json");
+export async function readNpmLockfile(projectDir: string, file = "package-lock.json"): Promise<Dependency[]> {
+  const lockPath = path.join(projectDir, file);
   const lock = JSON.parse(await readFile(lockPath, "utf8")) as PackageLock;
   if (!lock.packages || (lock.lockfileVersion ?? 1) < 2) {
     throw new Error(`${lockPath} is lockfileVersion 1; regenerate it with npm >= 7.`);
@@ -81,7 +83,7 @@ export async function readNpmLockfile(projectDir: string): Promise<Dependency[]>
   const byKey = new Map<string, Dependency>();
   for (const [p, entry] of Object.entries(packages)) {
     if (!p.includes(NM) || entry.link || !entry.version) continue;
-    const name = nameFromPath(p);
+    const name = entry.name ?? nameFromPath(p);
     const key = `${name}@${entry.version}`;
     let dep = byKey.get(key);
     if (!dep) {
@@ -89,7 +91,7 @@ export async function readNpmLockfile(projectDir: string): Promise<Dependency[]>
       byKey.set(key, dep);
     }
     dep.paths.push(p);
-    if (p === NM + name && directNames.includes(name)) dep.direct = true;
+    if (directNames.includes(nameFromPath(p)) && p === NM + nameFromPath(p)) dep.direct = true;
     if (!entry.dev) dep.dev = false;
     for (const d of introducedBy.get(p) ?? []) {
       if (!dep.introducedBy.includes(d)) dep.introducedBy.push(d);

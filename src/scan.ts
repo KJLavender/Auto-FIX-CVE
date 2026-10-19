@@ -1,7 +1,7 @@
 import semver from "semver";
 import { appliedBackports, mitigatedIds, readManifest } from "./backport/manifest.js";
 import { findUsages } from "./impact/analyze.js";
-import { readNpmLockfile } from "./lockfile/npm.js";
+import { readLockfile } from "./lockfile/index.js";
 import { OsvClient } from "./osv/client.js";
 import type { Finding, Reachability, Usage, Vulnerability } from "./types.js";
 
@@ -55,7 +55,7 @@ export function maxSeverity(vulns: Vulnerability[]): number {
 }
 
 export async function scan(projectDir: string, options: ScanOptions): Promise<Finding[]> {
-  const deps = (await readNpmLockfile(projectDir)).filter((d) => options.includeDev || !d.dev);
+  const deps = (await readLockfile(projectDir)).deps.filter((d) => options.includeDev || !d.dev);
   const osv = new OsvClient();
   const hits = await osv.queryBatch(deps.map((d) => ({ name: d.name, version: d.version })));
 
