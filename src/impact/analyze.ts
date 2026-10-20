@@ -95,6 +95,10 @@ export function findUsagesInSource(file: string, source: string, packages: strin
         matchesPackage(node.moduleSpecifier.text, pkg)
       ) {
         const specifier = node.moduleSpecifier.text;
+        // Type-only imports and re-exports are erased at compile time: they never load the package.
+        if ((ts.isImportDeclaration(node) && node.importClause?.isTypeOnly) || (ts.isExportDeclaration(node) && node.isTypeOnly)) {
+          return;
+        }
         const clause = ts.isImportDeclaration(node) ? node.importClause : undefined;
         if (!clause) {
           record(pkg, node, specifier, ts.isExportDeclaration(node) ? "(re-export)" : "(side-effect import)");
@@ -108,9 +112,23 @@ export function findUsagesInSource(file: string, source: string, packages: strin
           bindings.set(named.name.text, { local: named.name.text, imported: "*", specifier });
         } else if (named) {
           for (const el of named.elements) {
+            if (el.isTypeOnly) continue;
             bindings.set(el.name.text, { local: el.name.text, imported: (el.propertyName ?? el.name).text, specifier });
           }
         }
+        declarations.add(node);
+        return;
+      }
+
+      // TypeScript's CommonJS form: `import x = require("pkg")`.
+      if (
+        ts.isImportEqualsDeclaration(node) &&
+        !node.isTypeOnly &&
+        ts.isExternalModuleReference(node.moduleReference) &&
+        ts.isStringLiteral(node.moduleReference.expression) &&
+        matchesPackage(node.moduleReference.expression.text, pkg)
+      ) {
+        bindings.set(node.name.text, { local: node.name.text, imported: "*", specifier: node.moduleReference.expression.text });
         declarations.add(node);
         return;
       }

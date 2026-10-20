@@ -45,3 +45,22 @@ describe("findUsagesInSource", () => {
     expect(symbols(src, "lodash")).toEqual([]);
   });
 });
+
+describe("TypeScript-specific imports", () => {
+  it("ignores type-only imports, which never load the package at runtime", () => {
+    const src = [
+      'import type { Options } from "marked";',
+      'import { type Token, parse } from "marked";',
+      'export type { Renderer } from "marked";',
+      "const o: Options = {};",
+      "let t: Token;",
+      "parse(md);",
+    ].join("\n");
+    expect(symbols(src, "marked")).toEqual(["6:parse"]);
+  });
+
+  it("understands import-equals require", () => {
+    const src = ['import marked = require("marked");', "marked.parse(md);"].join("\n");
+    expect(symbols(src, "marked")).toEqual(["2:parse"]);
+  });
+});
