@@ -4,6 +4,8 @@
 
 大多數依賴掃描工具只會告訴你「升到 vX 就好」。Auto-FIX-CVE 會把流程做完：找出 CVE，定位**你的**程式碼裡哪幾行用到有漏洞的 API，再用兩種方式之一修好它。可以升級就升級，並修好升級後壞掉的程式碼；不能升級，就把上游的修補 backport 到你目前的版本。每個修補都會經過驗證，驗證沒過就 rollback。
 
+在八個會弄壞程式碼的真實安全升級案例中（marked、PyJWT、urllib3、Werkzeug 等，涵蓋 npm、uv、Poetry、Pipenv），它修掉了全部 57 個漏洞，專案的測試也都還是通過。其中六次程式碼修正，模型都只用一輪就完成，總成本約 $0.12（[benchmark](#benchmark)）。
+
 > 狀態：開發初期。`scan` 支援 JavaScript（npm、pnpm、Yarn classic 與 Berry）與 Python（uv、Poetry、Pipenv、固定版本的 `requirements.txt`）；`fix` 支援 npm（升級、backport、PR）、pnpm 與 Yarn（升級加 LLM 修正、PR），以及 uv / Poetry / Pipenv（升級加 LLM 修正、PR）。
 
 ## 運作方式
