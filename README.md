@@ -303,6 +303,16 @@ The LLM is called through a local CLI in headless mode (`-p --output-format json
 
 Typical cost in the examples above: $0.02–0.03 per upgrade repair, about $0.07 per backport (two PoCs plus the port).
 
+## FAQ
+
+**Will it upgrade or downgrade packages on its own?** It never downgrades: a target version must be higher than the installed one or the package is skipped. It does not upgrade without asking either. `fix` prints a plan (upgrade, override, backport or skip, with reasons) and waits for `y`. Outside a terminal it refuses to run unless you pass `--yes`. `scan` never changes anything.
+
+**What if an upgrade breaks my code?** Your checks run before anything changes, so a failure that was already there is not blamed on the upgrade. After the upgrade, failing checks go to the LLM, which edits the call sites (up to `--max-attempts`, default 3). If they still fail, everything is rolled back: manifest, lockfile, edited files and installed packages. A breaking upgrade is never attempted without checks to verify it. `--no-breaking` limits fixes to compatible upgrades, and `--prefer-backport` patches the installed version instead (npm).
+
+**Can it hang on a prompt like "Ok to proceed? (y)"?** No. Child commands run without stdin and with `CI=1`, so anything that would wait for input fails instead, and `npx` will not download packages on its own. The only prompt is the plan confirmation.
+
+**Does it need an API key?** No. The LLM runs through a local CLI on your existing subscription (see [LLM backend](#llm-backend)). `scan` needs no LLM at all.
+
 ## Development
 
 ```bash
