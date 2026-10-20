@@ -163,7 +163,7 @@ program
         (f) => !opts.only || opts.only.includes(f.dependency.name),
       );
       if (findings.length === 0) {
-        console.log(pc.green("Nothing to fix."));
+        console.log(opts.json ? JSON.stringify({ plan: [], results: [], remaining: [] }, null, 2) : pc.green("Nothing to fix."));
         return;
       }
 
@@ -182,7 +182,14 @@ program
       const base = opts.pr ? await checkPrPrerequisites(projectDir) : undefined;
       if (base) console.error(pc.dim(`  Fixes will be committed to a new branch and opened as a PR against ${base}.`));
       const actionable = plan.filter((s) => s.action !== "skip");
-      if (opts.dryRun || actionable.length === 0) return;
+      if (opts.dryRun || actionable.length === 0) {
+        // JSON consumers always get a document, even when nothing will run.
+        if (opts.json) {
+          const summary = plan.map((s) => ({ package: s.finding.dependency.name, version: s.finding.dependency.version, action: s.action, reason: s.reason }));
+          console.log(JSON.stringify({ plan: summary, results: [], remaining: findings }, null, 2));
+        }
+        return;
+      }
       if (!opts.yes) {
         if (!process.stdin.isTTY) throw new Error("Not running in a terminal; pass --yes to apply the plan.");
         if (!(await confirm(`Apply ${actionable.length} change(s)? [y/N] `))) {
