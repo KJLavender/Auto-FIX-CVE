@@ -199,9 +199,11 @@ export async function findUsages(projectDir: string, packages: string[]): Promis
   if (packages.length === 0) return merged;
   for (const file of await listSourceFiles(projectDir)) {
     const source = await readFile(file, "utf8");
-    if (!packages.some((p) => source.includes(p))) continue;
+    // Only analyse the packages this file can mention: each one costs a full AST walk.
+    const present = packages.filter((p) => source.includes(p));
+    if (present.length === 0) continue;
     const rel = path.relative(projectDir, file).split(path.sep).join("/");
-    for (const [pkg, usages] of findUsagesInSource(rel, source, packages)) {
+    for (const [pkg, usages] of findUsagesInSource(rel, source, present)) {
       merged.set(pkg, [...(merged.get(pkg) ?? []), ...usages]);
     }
   }
