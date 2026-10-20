@@ -145,7 +145,7 @@ program
 
       const lock = detectLockfile(projectDir);
       if (!FIXABLE.includes(lock.kind)) {
-        throw new Error(`fix supports npm (package-lock.json) and uv (uv.lock) projects for now; ${lock.file} can be scanned but not fixed yet.`);
+        throw new Error(`fix needs a lockfile it can regenerate (npm, pnpm, Yarn, uv, Poetry or Pipenv); ${lock.file} can be scanned but not fixed.`);
       }
       const manager = managerFor(lock.kind, projectDir);
 
@@ -163,7 +163,7 @@ program
         return;
       }
 
-      const checks = opts.check ?? (await detectChecks(projectDir));
+      const checks = opts.check ?? (await detectChecks(projectDir, lock.kind));
       const policy = {
         checks,
         allowBreaking: opts.breaking,

@@ -4,7 +4,7 @@
 
 大多數依賴掃描工具只會告訴你「升到 vX 就好」。Auto-FIX-CVE 會把流程做完：找出 CVE，定位**你的**程式碼裡哪幾行用到有漏洞的 API，再用兩種方式之一修好它。可以升級就升級，並修好升級後壞掉的程式碼；不能升級，就把上游的修補 backport 到你目前的版本。每個修補都會經過驗證，驗證沒過就 rollback。
 
-> 狀態：開發初期。`scan` 支援 JavaScript（npm、pnpm、Yarn classic 與 Berry）與 Python（uv、Poetry、Pipenv、固定版本的 `requirements.txt`）；`fix` 支援 npm 專案（升級、backport、PR）與 uv / Poetry / Pipenv 專案（升級加 LLM 修正、PR）。
+> 狀態：開發初期。`scan` 支援 JavaScript（npm、pnpm、Yarn classic 與 Berry）與 Python（uv、Poetry、Pipenv、固定版本的 `requirements.txt`）；`fix` 支援 npm（升級、backport、PR）、pnpm 與 Yarn（升級加 LLM 修正、PR），以及 uv / Poetry / Pipenv（升級加 LLM 修正、PR）。
 
 ## 運作方式
 
@@ -27,7 +27,7 @@
 
 ## 使用方式
 
-需要 Node.js ≥ 22.12 與 lockfile：`package-lock.json` / `npm-shrinkwrap.json`（v2/v3）、`pnpm-lock.yaml`（v6–v9）或 `yarn.lock`（v1 或 Berry）。Python 則是 `uv.lock`、`poetry.lock`、`Pipfile.lock` 或固定版本的 `requirements.txt`（會利用 pip-compile / `uv export` 的 `# via` 註解重建依賴圖）。`fix` 需要 `package-lock.json`、`uv.lock`、`poetry.lock` 或 `Pipfile.lock`。`fix` 另外需要本機的 LLM CLI（見 [LLM backend](#llm-backend)）。
+需要 Node.js ≥ 22.12 與 lockfile：`package-lock.json` / `npm-shrinkwrap.json`（v2/v3）、`pnpm-lock.yaml`（v6–v9）或 `yarn.lock`（v1 或 Berry）。Python 則是 `uv.lock`、`poetry.lock`、`Pipfile.lock` 或固定版本的 `requirements.txt`（會利用 pip-compile / `uv export` 的 `# via` 註解重建依賴圖）。上述 lockfile 除了單純的 `requirements.txt`（沒有工具可以重新產生）以外，`fix` 都支援。`fix` 另外需要本機的 LLM CLI（見 [LLM backend](#llm-backend)）。
 
 ```bash
 npm install
@@ -265,6 +265,7 @@ LLM 透過本機 CLI 以 headless 模式呼叫（`-p --output-format json --json
 | `AUTOFIX_LLM_BIN` | `PATH` 上的 CLI | CLI 執行檔路徑 |
 | `AUTOFIX_POETRY` | `poetry` | Poetry 指令，例如 `uvx poetry` |
 | `AUTOFIX_PIPENV` | `pipenv` | Pipenv 指令，例如 `uvx pipenv` |
+| `AUTOFIX_PNPM` / `AUTOFIX_YARN` | `pnpm` / `yarn` | pnpm / Yarn 指令，例如 `npx pnpm@9` |
 
 上面範例的實際成本：每次升級修正約 $0.02–0.03，每次 backport 約 $0.07（兩個 PoC 加上移植）。
 
@@ -288,7 +289,7 @@ npm run dev -- scan test/fixtures/vuln-app
 - [x] 產生附上驗證證據的 PR
 - [x] GitHub Action 與 SARIF 上傳（code scanning 直接標註呼叫點）
 - [x] 掃描 pnpm 與 Yarn lockfile
-- [ ] 修復 pnpm 與 Yarn 專案
+- [x] 修復 pnpm 專案（精準版本的 `pnpm.overrides`）與 Yarn 專案（僅限宣告的套件；Yarn resolutions 無法只針對單一版本）
 - [x] 掃描 Python 專案：uv、Poetry、Pipenv、requirements.txt；支援 PEP 440 版本規則；import 分析會把套件名對應到模組名（`PyYAML` → `yaml`），優先讀 virtualenv 裡的 `top_level.txt`
 - [x] 修復 uv、Poetry 與 Pipenv 專案（升級加 LLM 修正）
 - [ ] Python backport

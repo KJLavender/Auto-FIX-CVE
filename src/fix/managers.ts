@@ -40,11 +40,21 @@ function detectIndent(json: string): string | number {
   return json.match(/^[ \t]+(?=")/m)?.[0] ?? 2;
 }
 
-class NpmManager implements PackageManager {
+/** npm, pnpm and Yarn share package.json and node_modules; they differ in install and overrides. */
+class JsManager implements PackageManager {
   language = "JavaScript/TypeScript";
   canOverride = true;
   manifestFiles = ["package.json", "package-lock.json"];
-  constructor(private readonly dir: string) {}
+  protected installCommand = "npm install";
+  constructor(protected readonly dir: string) {}
+
+  /**
+   * Forces the vulnerable transitive copy to `to`. Keyed on the exact vulnerable
+   * version, so other copies of the package (e.g. an older major) are left alone.
+   */
+  protected override(json: Record<string, any>, dep: Dependency, to: string): void {
+    json.overrides = { ...json.overrides, [`${dep.name}@${dep.version}`]: to };
+  }
 
   private async pkg() {
     const text = await readFile(path.join(this.dir, "package.json"), "utf8");
@@ -64,15 +74,13 @@ class NpmManager implements PackageManager {
       const prefix = exact ? "" : (String(json[field][dep.name]).match(/^[\^~]/)?.[0] ?? "");
       json[field][dep.name] = prefix + to;
     } else {
-      // Key the override on the exact vulnerable version, so other copies of the
-      // package (e.g. an unrelated older major) are left alone.
-      json.overrides = { ...json.overrides, [`${dep.name}@${dep.version}`]: to };
+      this.override(json, dep, to);
     }
     await writeFile(path.join(this.dir, "package.json"), JSON.stringify(json, null, detectIndent(text)) + "\n", "utf8");
   }
 
   install() {
-    return run("npm install", this.dir);
+    return run(this.installCommand, this.dir);
   }
 
   async lockedVersions(name: string): Promise<string[]> {
@@ -92,11 +100,38 @@ class NpmManager implements PackageManager {
   }
 }
 
+class PnpmManager extends JsManager {
+  manifestFiles = ["package.json", "pnpm-lock.yaml"];
+  // Child commands run with CI=1, where pnpm defaults to a frozen lockfile.
+  protected installCommand = `${process.env.AUTOFIX_PNPM ?? "pnpm"} install --no-frozen-lockfile`;
+
+  // pnpm supports the same exact-version selector under its own key.
+  protected override(json: Record<string, any>, dep: Dependency, to: string): void {
+    json.pnpm = { ...json.pnpm, overrides: { ...json.pnpm?.overrides, [`${dep.name}@${dep.version}`]: to } };
+  }
+}
+
+class YarnManager extends JsManager {
+  // Yarn resolutions cannot target one version of a package, so forcing a
+  // transitive copy could break other consumers; only declared packages are fixed.
+  canOverride = false;
+  manifestFiles = ["package.json", "yarn.lock"];
+  protected installCommand = `${process.env.AUTOFIX_YARN ?? "yarn"} install`;
+
+  async install() {
+    // Yarn Berry makes the lockfile immutable under CI=1; classic Yarn has no such flag.
+    const berry = (await readFile(path.join(this.dir, "yarn.lock"), "utf8")).includes("__metadata:");
+    return run(berry ? `${this.installCommand} --no-immutable` : this.installCommand, this.dir);
+  }
+}
+
 /** Package managers `fix` can drive; others can be scanned but not fixed yet. */
-export const FIXABLE: LockKind[] = ["npm", "uv", "poetry", "pipenv"];
+export const FIXABLE: LockKind[] = ["npm", "pnpm", "yarn", "uv", "poetry", "pipenv"];
 
 export function managerFor(kind: LockKind, dir: string): PackageManager {
-  if (kind === "npm") return new NpmManager(dir);
+  if (kind === "npm") return new JsManager(dir);
+  if (kind === "pnpm") return new PnpmManager(dir);
+  if (kind === "yarn") return new YarnManager(dir);
   if (kind === "uv") return new UvManager(dir);
   if (kind === "poetry") return new PoetryManager(dir);
   if (kind === "pipenv") return new PipenvManager(dir);

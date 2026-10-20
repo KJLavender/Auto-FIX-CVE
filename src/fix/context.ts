@@ -2,27 +2,32 @@ import { existsSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { listSourceFiles } from "../impact/analyze.js";
+import type { LockKind } from "../lockfile/index.js";
 import type { Usage } from "../types.js";
 import { runFile } from "./exec.js";
 
 const DEFAULT_TEST = /no test specified/;
 
-/** Picks verification commands from package.json scripts, cheapest first. */
-export async function detectChecks(projectDir: string): Promise<string[]> {
-  if (existsSync(path.join(projectDir, "uv.lock"))) return detectPythonChecks(projectDir, "uv run");
-  if (existsSync(path.join(projectDir, "poetry.lock"))) return detectPythonChecks(projectDir, `${process.env.AUTOFIX_POETRY ?? "poetry"} run`);
-  if (existsSync(path.join(projectDir, "Pipfile.lock"))) return detectPythonChecks(projectDir, `${process.env.AUTOFIX_PIPENV ?? "pipenv"} run`, "Pipfile");
+/** Picks verification commands for the project, cheapest first, using its own package manager. */
+export async function detectChecks(projectDir: string, kind: LockKind): Promise<string[]> {
+  if (kind === "uv") return detectPythonChecks(projectDir, "uv run");
+  if (kind === "poetry") return detectPythonChecks(projectDir, `${process.env.AUTOFIX_POETRY ?? "poetry"} run`);
+  if (kind === "pipenv") return detectPythonChecks(projectDir, `${process.env.AUTOFIX_PIPENV ?? "pipenv"} run`, "Pipfile");
+  if (kind === "requirements") return [];
+
+  // `yarn test` also works under Plug'n'Play, where plain node cannot resolve packages.
+  const runner = kind === "pnpm" ? (process.env.AUTOFIX_PNPM ?? "pnpm") : kind === "yarn" ? (process.env.AUTOFIX_YARN ?? "yarn") : "npm";
   const pkg = JSON.parse(await readFile(path.join(projectDir, "package.json"), "utf8")) as {
     scripts?: Record<string, string>;
   };
   const scripts = pkg.scripts ?? {};
   const checks: string[] = [];
-  if (scripts.typecheck) checks.push("npm run typecheck");
+  if (scripts.typecheck) checks.push(`${runner} run typecheck`);
   else if (existsSync(path.join(projectDir, "tsconfig.json")) && existsSync(path.join(projectDir, "node_modules/.bin/tsc"))) {
     checks.push("npx tsc --noEmit");
   }
-  if (scripts.build) checks.push("npm run build");
-  if (scripts.test && !DEFAULT_TEST.test(scripts.test)) checks.push("npm test");
+  if (scripts.build) checks.push(`${runner} run build`);
+  if (scripts.test && !DEFAULT_TEST.test(scripts.test)) checks.push(`${runner} test`);
   return checks;
 }
 

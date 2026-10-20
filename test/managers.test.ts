@@ -2,6 +2,7 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { detectChecks } from "../src/fix/context.js";
 import { managerFor, splitRequirement } from "../src/fix/managers.js";
 import { poetryConstraint } from "../src/fix/python-managers.js";
 import type { Dependency } from "../src/types.js";
@@ -130,5 +131,24 @@ describe("pipenv manager", () => {
     expect(text).toContain('urllib3 = ">=2.8.0"');
     expect(text).toContain('Jinja2 = { version = ">=3.1.6", extras = ["i18n"] }');
     expect(text).toContain('pytest = ">=9.0.3"');
+  });
+});
+
+describe("detectChecks", () => {
+  it("uses the project's own package manager to run its scripts", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "autofix-checks-"));
+    await writeFile(path.join(dir, "package.json"), JSON.stringify({ scripts: { build: "tsc", test: "vitest" } }));
+    await writeFile(path.join(dir, "pyproject.toml"), '[dependency-groups]\ndev = ["pytest"]\n');
+    expect(await detectChecks(dir, "npm")).toEqual(["npm run build", "npm test"]);
+    expect(await detectChecks(dir, "pnpm")).toEqual(["pnpm run build", "pnpm test"]);
+    expect(await detectChecks(dir, "yarn")).toEqual(["yarn run build", "yarn test"]);
+    // The same directory also has a Python project; its checks only apply when fixing that one.
+    expect(await detectChecks(dir, "uv")).toEqual(["uv run pytest -q"]);
+  });
+
+  it("skips npm's placeholder test script", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "autofix-checks-"));
+    await writeFile(path.join(dir, "package.json"), JSON.stringify({ scripts: { test: 'echo "Error: no test specified" && exit 1' } }));
+    expect(await detectChecks(dir, "npm")).toEqual([]);
   });
 });

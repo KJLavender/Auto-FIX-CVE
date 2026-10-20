@@ -4,7 +4,7 @@
 
 Most dependency scanners stop at "upgrade to vX". Auto-FIX-CVE closes the loop. It finds the CVE and locates the exact lines in **your** code that use the vulnerable API. Then it fixes the problem in one of two ways: upgrade and repair the code that breaks, or, when you can't upgrade, backport the upstream patch into the version you have. Every fix is verified, and anything that fails verification is rolled back.
 
-> Status: early development. `scan` supports JavaScript (npm, pnpm, Yarn classic and Berry) and Python (uv, Poetry, Pipenv, pinned `requirements.txt`). `fix` supports npm projects (upgrade, backport, PRs) and uv / Poetry / Pipenv projects (upgrade with LLM repair, PRs).
+> Status: early development. `scan` supports JavaScript (npm, pnpm, Yarn classic and Berry) and Python (uv, Poetry, Pipenv, pinned `requirements.txt`). `fix` supports npm (upgrade, backport, PRs), pnpm and Yarn (upgrade with LLM repair, PRs) and uv / Poetry / Pipenv (upgrade with LLM repair, PRs).
 
 ## How it works
 
@@ -27,7 +27,7 @@ What sets it apart:
 
 ## Usage
 
-Requires Node.js ≥ 22.12 and a lockfile: `package-lock.json` / `npm-shrinkwrap.json` (v2/v3), `pnpm-lock.yaml` (v6–v9) or `yarn.lock` (v1 or Berry). For Python: `uv.lock`, `poetry.lock`, `Pipfile.lock` or a pinned `requirements.txt` (pip-compile / `uv export` `# via` comments are used to rebuild the dependency graph). `fix` needs `package-lock.json`, `uv.lock`, `poetry.lock` or `Pipfile.lock`. `fix` also needs a local LLM CLI (see [LLM backend](#llm-backend)).
+Requires Node.js ≥ 22.12 and a lockfile: `package-lock.json` / `npm-shrinkwrap.json` (v2/v3), `pnpm-lock.yaml` (v6–v9) or `yarn.lock` (v1 or Berry). For Python: `uv.lock`, `poetry.lock`, `Pipfile.lock` or a pinned `requirements.txt` (pip-compile / `uv export` `# via` comments are used to rebuild the dependency graph). `fix` works with every lockfile above except a plain `requirements.txt`, which has no tool to regenerate it. `fix` also needs a local LLM CLI (see [LLM backend](#llm-backend)).
 
 ```bash
 npm install
@@ -265,6 +265,7 @@ The LLM is called through a local CLI in headless mode (`-p --output-format json
 | `AUTOFIX_LLM_BIN` | CLI on `PATH` | path to the CLI executable |
 | `AUTOFIX_POETRY` | `poetry` | Poetry command, e.g. `uvx poetry` |
 | `AUTOFIX_PIPENV` | `pipenv` | Pipenv command, e.g. `uvx pipenv` |
+| `AUTOFIX_PNPM` / `AUTOFIX_YARN` | `pnpm` / `yarn` | pnpm / Yarn command, e.g. `npx pnpm@9` |
 
 Typical cost in the examples above: $0.02–0.03 per upgrade repair, about $0.07 per backport (two PoCs plus the port).
 
@@ -288,7 +289,7 @@ The fixtures under `test/fixtures/` are intentionally vulnerable. Copy them to a
 - [x] PR generation with the evidence attached
 - [x] GitHub Action with SARIF upload (code scanning alerts on call sites)
 - [x] Scan pnpm and Yarn lockfiles
-- [ ] Fix pnpm and Yarn projects
+- [x] Fix pnpm projects (exact-version `pnpm.overrides`) and Yarn projects (declared packages; Yarn resolutions cannot target a single version)
 - [x] Scan Python projects: uv, Poetry, Pipenv, requirements.txt; PEP 440 versions; import analysis that maps distributions to modules (`PyYAML` → `yaml`) via the virtualenv's `top_level.txt`
 - [x] Fix uv, Poetry and Pipenv projects (upgrade + LLM repair)
 - [ ] Python backports
