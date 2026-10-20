@@ -6,7 +6,7 @@
 
 在八個會弄壞程式碼的真實安全升級案例中（marked、PyJWT、urllib3、Werkzeug 等，涵蓋 npm、uv、Poetry、Pipenv），它修掉了全部 57 個漏洞，專案的測試也都還是通過。其中六次程式碼修正，模型都只用一輪就完成，總成本約 $0.12（[benchmark](#benchmark)）。
 
-> 狀態：開發初期。`scan` 支援 JavaScript（npm、pnpm、Yarn classic 與 Berry）、Python（uv、Poetry、Pipenv、固定版本的 `requirements.txt`）與 Go（`go.mod`）；`fix` 支援 npm（升級、backport、PR）、pnpm 與 Yarn（升級加 LLM 修正、PR），以及 uv / Poetry / Pipenv（升級加 LLM 修正、PR）。
+> 狀態：開發初期。`scan` 支援 JavaScript（npm、pnpm、Yarn classic 與 Berry）、Python（uv、Poetry、Pipenv、固定版本的 `requirements.txt`）與 Go（`go.mod`）；`fix` 支援 npm（升級、backport、PR）、pnpm 與 Yarn（升級加 LLM 修正、PR），以及 uv / Poetry / Pipenv 與 Go module（升級加 LLM 修正、PR）。
 
 ## 運作方式
 
@@ -29,7 +29,7 @@
 
 ## 使用方式
 
-需要 Node.js ≥ 22.12 與 lockfile：`package-lock.json` / `npm-shrinkwrap.json`（v2/v3）、`pnpm-lock.yaml`（v6–v9）或 `yarn.lock`（v1 或 Berry）。Python 則是 `uv.lock`、`poetry.lock`、`Pipfile.lock` 或固定版本的 `requirements.txt`（會利用 pip-compile / `uv export` 的 `# via` 註解重建依賴圖）。Go 則是 `go.mod`。上述 lockfile 除了單純的 `requirements.txt` 和 `go.mod`（Go 的修復在路線圖上）以外，`fix` 都支援。`fix` 另外需要本機的 LLM CLI（見 [LLM backend](#llm-backend)）。
+需要 Node.js ≥ 22.12 與 lockfile：`package-lock.json` / `npm-shrinkwrap.json`（v2/v3）、`pnpm-lock.yaml`（v6–v9）或 `yarn.lock`（v1 或 Berry）。Python 則是 `uv.lock`、`poetry.lock`、`Pipfile.lock` 或固定版本的 `requirements.txt`（會利用 pip-compile / `uv export` 的 `# via` 註解重建依賴圖）。Go 則是 `go.mod`。上述 lockfile 除了單純的 `requirements.txt` 以外，`fix` 都支援。Go 的作法是在 `go.mod` 提高 require 的版本（間接依賴也可以），執行 `go mod tidy`，再以 `go build ./...` 和 `go test ./...` 驗證。`fix` 另外需要本機的 LLM CLI（見 [LLM backend](#llm-backend)）。
 
 不用安裝，直接從 GitHub 執行：
 
@@ -317,7 +317,7 @@ npm run dev -- scan test/fixtures/vuln-app
 - [x] 掃描 Python 專案：uv、Poetry、Pipenv、requirements.txt；支援 PEP 440 版本規則；import 分析會把套件名對應到模組名（`PyYAML` → `yaml`），優先讀 virtualenv 裡的 `top_level.txt`
 - [x] 修復 uv、Poetry 與 Pipenv 專案（升級加 LLM 修正）
 - [x] 掃描 Go module（`go.mod`、import 分析、以 advisory 列出的受影響函式判斷可達性）
-- [ ] 修復 Go module
+- [x] 修復 Go module（`go.mod` + `go mod tidy`，在 CI 中用 Go 工具鏈實際驗證）
 - [ ] Python backport：刻意暫不實作，原因有兩個。Python 的套件管理器沒有 post-install hook，修改 site-packages 的修補會在下一次 `uv sync` / `pip install` 時悄悄消失；而且 Python 沒有像 Node 那樣的內建 permission sandbox，執行模型根據不可信的 advisory 寫出的 PoC 時，無法做到同等程度的隔離。
 
 ## 授權

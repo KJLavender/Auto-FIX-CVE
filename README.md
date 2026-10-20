@@ -6,7 +6,7 @@ Most dependency scanners stop at "upgrade to vX". Auto-FIX-CVE closes the loop. 
 
 On eight real security upgrades that break code (marked, PyJWT, urllib3, Werkzeug and others, across npm, uv, Poetry and Pipenv), it fixed all 57 vulnerabilities with the projects' tests still passing. The six code repairs took one model round each, for about $0.12 in total ([benchmark](#benchmark)).
 
-> Status: early development. `scan` supports JavaScript (npm, pnpm, Yarn classic and Berry), Python (uv, Poetry, Pipenv, pinned `requirements.txt`) and Go (`go.mod`). `fix` supports npm (upgrade, backport, PRs), pnpm and Yarn (upgrade with LLM repair, PRs) and uv / Poetry / Pipenv (upgrade with LLM repair, PRs).
+> Status: early development. `scan` supports JavaScript (npm, pnpm, Yarn classic and Berry), Python (uv, Poetry, Pipenv, pinned `requirements.txt`) and Go (`go.mod`). `fix` supports npm (upgrade, backport, PRs), pnpm and Yarn (upgrade with LLM repair, PRs) uv / Poetry / Pipenv and Go modules (upgrade with LLM repair, PRs).
 
 ## How it works
 
@@ -29,7 +29,7 @@ What sets it apart:
 
 ## Usage
 
-Requires Node.js ≥ 22.12 and a lockfile: `package-lock.json` / `npm-shrinkwrap.json` (v2/v3), `pnpm-lock.yaml` (v6–v9) or `yarn.lock` (v1 or Berry). For Python: `uv.lock`, `poetry.lock`, `Pipfile.lock` or a pinned `requirements.txt` (pip-compile / `uv export` `# via` comments are used to rebuild the dependency graph). For Go: `go.mod`. `fix` works with every lockfile above except a plain `requirements.txt` and `go.mod` (Go fixing is on the roadmap). `fix` also needs a local LLM CLI (see [LLM backend](#llm-backend)).
+Requires Node.js ≥ 22.12 and a lockfile: `package-lock.json` / `npm-shrinkwrap.json` (v2/v3), `pnpm-lock.yaml` (v6–v9) or `yarn.lock` (v1 or Berry). For Python: `uv.lock`, `poetry.lock`, `Pipfile.lock` or a pinned `requirements.txt` (pip-compile / `uv export` `# via` comments are used to rebuild the dependency graph). For Go: `go.mod`. `fix` works with every lockfile above except a plain `requirements.txt`. For Go it raises the requirement in `go.mod` (indirect ones too), runs `go mod tidy`, and verifies with `go build ./...` and `go test ./...`. `fix` also needs a local LLM CLI (see [LLM backend](#llm-backend)).
 
 Run it straight from GitHub, no install needed:
 
@@ -317,7 +317,7 @@ The fixtures under `test/fixtures/` are intentionally vulnerable. Copy them to a
 - [x] Scan Python projects: uv, Poetry, Pipenv, requirements.txt; PEP 440 versions; import analysis that maps distributions to modules (`PyYAML` → `yaml`) via the virtualenv's `top_level.txt`
 - [x] Fix uv, Poetry and Pipenv projects (upgrade + LLM repair)
 - [x] Scan Go modules (`go.mod`, import analysis, the advisory's vulnerable-function list for reachability)
-- [ ] Fix Go modules
+- [x] Fix Go modules (`go.mod` + `go mod tidy`, checked in CI with the Go toolchain)
 - [ ] Python backports. Deliberately not done yet, for two reasons. Python package managers have no post-install hook, so a patch to site-packages would silently disappear on the next `uv sync` / `pip install`. And Python has no built-in permission sandbox like Node's, so running a model-written PoC derived from untrusted advisory text could not be contained to the same standard.
 
 ## License
