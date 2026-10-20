@@ -21,7 +21,7 @@ describe("Cargo.lock", () => {
       "memchr@2.5.0 transitive <regex>",
       "regex-syntax@0.6.25 transitive <regex>",
       "regex@1.5.4 direct <regex>",
-      "smallvec@0.6.9 direct <smallvec>",
+      "smallvec@0.6.13 direct <smallvec>",
     ]);
     expect(lock.deps.every((d) => d.ecosystem === "crates.io")).toBe(true);
   });

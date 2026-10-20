@@ -40,5 +40,5 @@ dependencies = [
 
 [[package]]
 name = "smallvec"
-version = "0.6.9"
+version = "0.6.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
