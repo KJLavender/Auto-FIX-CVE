@@ -22,7 +22,7 @@ import { formatFixSummary, formatPlan, formatReport } from "./report.js";
 import { toMarkdown } from "./markdown.js";
 import { mergeSarif, toSarif, type SarifLog } from "./sarif.js";
 import { triageFindings } from "./triage.js";
-import { fails, scan, type FailOn, type IgnoredVuln } from "./scan.js";
+import { fails, scan, type FailOn, type IgnoredVuln, type Severity } from "./scan.js";
 import type { Finding } from "./types.js";
 
 // dist/cli.js sits one level below package.json, so this works from a clone and from npx.
@@ -46,6 +46,7 @@ interface ScanCliOptions {
   sarif?: string;
   markdown?: string;
   baseline?: string;
+  minSeverity?: Severity;
   updateBaseline?: boolean;
   failOn: FailOn;
   triage?: boolean;
@@ -75,6 +76,14 @@ program
   .option("--max-usages <n>", "usages to show per package", (v) => Number.parseInt(v, 10), 10)
   .option("--sarif <file>", "also write a SARIF 2.1.0 report (for GitHub code scanning)")
   .option("--markdown <file>", "also write a Markdown summary (for CI job summaries and PR comments)")
+  .addOption(
+    new Option("--min-severity <level>", "leave out vulnerabilities rated below this (unrated ones are kept)").choices([
+      "low",
+      "moderate",
+      "high",
+      "critical",
+    ]),
+  )
   .option("--baseline <file>", "only vulnerabilities not in this baseline count for --fail-on")
   .option("--update-baseline", "write the current vulnerabilities to the --baseline file and exit 0")
   .addOption(
@@ -100,7 +109,7 @@ program
     for (const { dir: projectDir, lock } of projects) {
       const label = path.relative(root, path.join(projectDir, lock.file)).split(path.sep).join("/");
       const ignored: IgnoredVuln[] = [];
-      const findings = await scan(projectDir, { includeDev: opts.dev, lock, ignored });
+      const findings = await scan(projectDir, { includeDev: opts.dev, lock, ignored, minSeverity: opts.minSeverity });
       if (opts.triage) {
         const cost = await triageFindings(projectDir, findings, triageBackend, opts.triageLimit, log);
         log(`Triage cost (${label}): $${cost.toFixed(4)}`);

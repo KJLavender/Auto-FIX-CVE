@@ -25,6 +25,7 @@ All notable changes, newest first. No version has been released yet; everything 
 - Reachability: call sites named in the advisory, the advisory's own vulnerable-function list when it has one (Go, RustSec), transitive packages traced to the direct dependency you call, and an optional LLM verdict (`--triage`).
 - Accepted risks in `.autofix-cve.json`, with a required reason and an optional expiry, plus a JSON schema for editors.
 - Baseline mode: only vulnerabilities that are new since the baseline fail the build.
+- `--min-severity` hides vulnerabilities rated below a level; unrated advisories are always kept.
 - Output: SARIF for GitHub code scanning (alerts on the exact call site), Markdown for job summaries, JSON.
 
 ### Tooling

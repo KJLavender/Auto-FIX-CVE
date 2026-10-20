@@ -62,6 +62,7 @@ node dist/cli.js doctor                     # 檢查有哪些套件管理器 / �
 node dist/cli.js scan path/to/project --json      # 機器可讀格式
 node dist/cli.js scan path/to/project --no-dev    # 略過只在開發時使用的依賴
 node dist/cli.js scan path/to/repo -r             # 掃描 monorepo 裡的每個專案
+node dist/cli.js scan path/to/project --min-severity high   # 隱藏 low 與 moderate
 ```
 
 同一個目錄同時有 JavaScript 和 Python 的 lockfile 時，兩個都會掃。`--recursive` 會往下走訪子目錄（略過 `node_modules`、virtualenv 和 build 輸出），每個專案各自列出一段結果，並把全部合併成一份 SARIF 報告。
@@ -259,7 +260,7 @@ jobs:
           fail-on: likely      # any | likely | high | none
 ```
 
-這個 action 會掃描、把 Markdown 表格寫進 job summary、把 SARIF 報告上傳到 code scanning；專案有 backport 時也會執行 `verify`。Alert 會出現在 lockfile 的套件項目上，**也會出現在呼叫 advisory 點名的 API 的那一行程式碼**。可用的輸入：`path`、`recursive`、`baseline`、`fail-on`、`include-dev`、`sarif-file`、`upload-sarif`、`verify`。
+這個 action 會掃描、把 Markdown 表格寫進 job summary、把 SARIF 報告上傳到 code scanning；專案有 backport 時也會執行 `verify`。Alert 會出現在 lockfile 的套件項目上，**也會出現在呼叫 advisory 點名的 API 的那一行程式碼**。可用的輸入：`path`、`recursive`、`baseline`、`min-severity`、`fail-on`、`include-dev`、`sarif-file`、`upload-sarif`、`verify`。
 
 在本機也能用相同的選項：
 

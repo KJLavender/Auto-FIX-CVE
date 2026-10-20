@@ -14,6 +14,17 @@ export interface ScanOptions {
   lock?: LockRef;
   /** Receives every vulnerability suppressed by an ignore rule. */
   ignored?: IgnoredVuln[];
+  /** Leave out vulnerabilities rated below this (`low`, `moderate`, `high`, `critical`). Unrated ones are always kept. */
+  minSeverity?: Severity;
+}
+
+export type Severity = "low" | "moderate" | "high" | "critical";
+const MIN_RANK: Record<Severity, number> = { low: 1, moderate: 2, high: 3, critical: 4 };
+
+/** Whether a vulnerability is rated at or above `min`. An unrated advisory is not assumed to be minor. */
+export function meetsSeverity(v: Vulnerability, min: Severity | undefined): boolean {
+  const rank = SEVERITY_RANK[v.severity?.toUpperCase() ?? ""] ?? 0;
+  return !min || rank === 0 || rank >= MIN_RANK[min];
 }
 
 export interface IgnoredVuln {
@@ -130,7 +141,9 @@ export async function scan(projectDir: string, options: ScanOptions): Promise<Fi
     const vulns = dedupeVulns(await osv.getVulns(ids, dep.name, dep.ecosystem)).filter((v) => {
       const keys = [v.id, ...v.aliases];
       const rule = rules.find((r) => keys.includes(r.id) && (!r.package || normalizeName(dep.ecosystem, r.package) === dep.name));
-      if (!rule) return true;
+      if (!rule) {
+        return meetsSeverity(v, options.minSeverity);
+      }
       keys.forEach((k) => accepted.add(k));
       options.ignored?.push({ package: dep.name, version: dep.version, id: v.id, reason: rule.reason, until: rule.until });
       return false;

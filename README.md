@@ -62,6 +62,7 @@ node dist/cli.js doctor                     # which package managers / tools are
 node dist/cli.js scan path/to/project --json      # machine-readable
 node dist/cli.js scan path/to/project --no-dev    # skip dev-only deps
 node dist/cli.js scan path/to/repo -r             # every project in a monorepo
+node dist/cli.js scan path/to/project --min-severity high   # hide low and moderate
 ```
 
 A directory with both a JavaScript and a Python lockfile gets both scanned. `--recursive` walks subdirectories (skipping `node_modules`, virtualenvs and build output), prints one section per project, and merges everything into one SARIF report.
@@ -259,7 +260,7 @@ jobs:
           fail-on: likely      # any | likely | high | none
 ```
 
-The action scans, writes a Markdown table to the job summary, uploads a SARIF report to code scanning, and runs `verify` when the project has backports. Alerts appear on the lockfile entry **and on the exact lines that call the API named in the advisory**. Inputs: `path`, `recursive`, `baseline`, `fail-on`, `include-dev`, `sarif-file`, `upload-sarif`, `verify`.
+The action scans, writes a Markdown table to the job summary, uploads a SARIF report to code scanning, and runs `verify` when the project has backports. Alerts appear on the lockfile entry **and on the exact lines that call the API named in the advisory**. Inputs: `path`, `recursive`, `baseline`, `min-severity`, `fail-on`, `include-dev`, `sarif-file`, `upload-sarif`, `verify`.
 
 The same options are available locally:
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mentionPattern } from "../src/scan.js";
+import { meetsSeverity, mentionPattern } from "../src/scan.js";
 
 describe("mentionPattern", () => {
   it("requires code formatting for plain English words", () => {
@@ -13,5 +13,16 @@ describe("mentionPattern", () => {
 
   it("matches distinctive identifiers anywhere", () => {
     expect(mentionPattern("zipObjectDeep").test("prototype pollution via zipObjectDeep")).toBe(true);
+  });
+});
+
+describe("meetsSeverity", () => {
+  it("filters by rating but keeps unrated advisories", () => {
+    const v = (severity?: string) => ({ id: "X", aliases: [], summary: "", details: "", severity, fixedVersions: [], fixCommits: [] });
+    expect(meetsSeverity(v("LOW"), "high")).toBe(false);
+    expect(meetsSeverity(v("MODERATE"), "moderate")).toBe(true);
+    expect(meetsSeverity(v("CRITICAL"), "high")).toBe(true);
+    expect(meetsSeverity(v(undefined), "critical")).toBe(true);
+    expect(meetsSeverity(v("LOW"), undefined)).toBe(true);
   });
 });
