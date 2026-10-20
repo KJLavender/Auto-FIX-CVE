@@ -1,0 +1,12 @@
+[project]
+name = "python-app"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "requests==2.25.0",
+    "PyYAML==5.3.1",
+    "Jinja2==2.11.2",
+]
+
+[dependency-groups]
+dev = ["pytest==6.2.0"]

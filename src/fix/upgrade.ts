@@ -1,12 +1,12 @@
 import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import semver from "semver";
 import { canBackport } from "../backport/backport.js";
 import { readNpmLockfile } from "../lockfile/npm.js";
 import type { LlmBackend } from "../llm/backend.js";
 import type { OsvClient } from "../osv/client.js";
 import type { Finding } from "../types.js";
+import { compareVersions } from "../versions.js";
 import { changelogExcerpt, exportShape, relevantFiles } from "./context.js";
 import { applyEdits, changedSince, restoreFiles, type Edit } from "./edits.js";
 import { run, tail } from "./exec.js";
@@ -160,7 +160,7 @@ export function planFinding(finding: Finding, policy: PlanPolicy): PlanStep {
 
   if (!to) return backportOr("no fixed release", "no fixed release");
   // Security fixes only ever move forward; a downgrade could reintroduce older bugs.
-  if (!semver.gt(to, dep.version)) return skip(`refusing to move from ${dep.version} to ${to} (not an upgrade)`);
+  if (compareVersions(dep.ecosystem, to, dep.version) <= 0) return skip(`refusing to move from ${dep.version} to ${to} (not an upgrade)`);
   if (finding.breaking) {
     if (!dep.direct) return backportOr(`transitive, upgrade is breaking (via ${dep.introducedBy.join(", ")})`, "transitive breaking upgrade");
     if (!policy.allowBreaking) return backportOr("breaking upgrade not allowed (--no-breaking)", "breaking upgrade not allowed");

@@ -1,4 +1,7 @@
+import type { Ecosystem } from "./versions.js";
+
 export interface Dependency {
+  ecosystem: Ecosystem;
   name: string;
   version: string;
   /** Install locations in the lockfile, e.g. `node_modules/a/node_modules/b`. */

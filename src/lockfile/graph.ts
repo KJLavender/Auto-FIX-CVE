@@ -1,4 +1,5 @@
 import type { Dependency } from "../types.js";
+import type { Ecosystem } from "../versions.js";
 
 export interface GraphNode {
   name: string;
@@ -20,7 +21,7 @@ export interface Root {
  * one entry per name@version, marked direct/dev, with the direct dependencies
  * that pull it in. A package is dev-only when no production root reaches it.
  */
-export function toDependencies(nodes: Map<string, GraphNode>, roots: Root[]): Dependency[] {
+export function toDependencies(nodes: Map<string, GraphNode>, roots: Root[], ecosystem: Ecosystem = "npm"): Dependency[] {
   const introducedBy = new Map<string, Set<string>>();
   const prodReachable = new Set<string>();
 
@@ -48,7 +49,7 @@ export function toDependencies(nodes: Map<string, GraphNode>, roots: Root[]): De
     const key = `${node.name}@${node.version}`;
     let dep = byKey.get(key);
     if (!dep) {
-      dep = { name: node.name, version: node.version, paths: [], direct: false, dev: true, introducedBy: [] };
+      dep = { ecosystem, name: node.name, version: node.version, paths: [], direct: false, dev: true, introducedBy: [] };
       byKey.set(key, dep);
     }
     if (rootIds.has(id)) dep.direct = true;

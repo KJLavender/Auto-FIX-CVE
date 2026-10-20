@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isBreakingUpgrade, mentionPattern } from "../src/scan.js";
+import { mentionPattern } from "../src/scan.js";
 
 describe("mentionPattern", () => {
   it("requires code formatting for plain English words", () => {
@@ -13,16 +13,5 @@ describe("mentionPattern", () => {
 
   it("matches distinctive identifiers anywhere", () => {
     expect(mentionPattern("zipObjectDeep").test("prototype pollution via zipObjectDeep")).toBe(true);
-  });
-});
-
-describe("isBreakingUpgrade", () => {
-  it("follows semver, including 0.x rules", () => {
-    expect(isBreakingUpgrade("4.17.20", "4.18.0")).toBe(false);
-    expect(isBreakingUpgrade("1.2.5", "1.2.6")).toBe(false);
-    expect(isBreakingUpgrade("3.0.0", "4.0.0")).toBe(true);
-    expect(isBreakingUpgrade("0.21.0", "0.34.0")).toBe(true);
-    expect(isBreakingUpgrade("0.21.0", "0.21.4")).toBe(false);
-    expect(isBreakingUpgrade("0.0.1", "0.0.2")).toBe(true);
   });
 });

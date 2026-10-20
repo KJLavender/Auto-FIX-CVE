@@ -6,7 +6,7 @@ import { toSarif } from "../src/sarif.js";
 import type { Finding } from "../src/types.js";
 
 const finding: Finding = {
-  dependency: { name: "lodash", version: "4.17.20", paths: ["node_modules/lodash"], direct: true, dev: false, introducedBy: ["lodash"] },
+  dependency: { ecosystem: "npm", name: "lodash", version: "4.17.20", paths: ["node_modules/lodash"], direct: true, dev: false, introducedBy: ["lodash"] },
   vulns: [
     {
       id: "GHSA-35jh-r3h4-6jhm",

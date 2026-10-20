@@ -1,11 +1,13 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import type { Dependency } from "../types.js";
+import { normalizeName } from "../versions.js";
 import { readNpmLockfile } from "./npm.js";
 import { readPnpmLockfile } from "./pnpm.js";
+import { readPipfileLock, readPoetryLockfile, readRequirements, readUvLockfile } from "./python.js";
 import { readYarnLockfile } from "./yarn.js";
 
-export type LockKind = "npm" | "pnpm" | "yarn";
+export type LockKind = "npm" | "pnpm" | "yarn" | "uv" | "poetry" | "pipenv" | "requirements";
 
 export interface Lockfile {
   kind: LockKind;
@@ -19,6 +21,10 @@ const DETECT: { file: string; kind: LockKind }[] = [
   { file: "npm-shrinkwrap.json", kind: "npm" },
   { file: "pnpm-lock.yaml", kind: "pnpm" },
   { file: "yarn.lock", kind: "yarn" },
+  { file: "uv.lock", kind: "uv" },
+  { file: "poetry.lock", kind: "poetry" },
+  { file: "Pipfile.lock", kind: "pipenv" },
+  { file: "requirements.txt", kind: "requirements" },
 ];
 
 export function detectLockfile(projectDir: string): { file: string; kind: LockKind } {
@@ -29,13 +35,16 @@ export function detectLockfile(projectDir: string): { file: string; kind: LockKi
 
 export async function readLockfile(projectDir: string): Promise<Lockfile> {
   const { file, kind } = detectLockfile(projectDir);
-  const deps =
-    kind === "npm"
-      ? await readNpmLockfile(projectDir, file)
-      : kind === "pnpm"
-        ? await readPnpmLockfile(projectDir)
-        : await readYarnLockfile(projectDir);
-  return { kind, file, deps };
+  const readers: Record<LockKind, () => Promise<Dependency[]>> = {
+    npm: () => readNpmLockfile(projectDir, file),
+    pnpm: () => readPnpmLockfile(projectDir),
+    yarn: () => readYarnLockfile(projectDir),
+    uv: () => readUvLockfile(projectDir),
+    poetry: () => readPoetryLockfile(projectDir),
+    pipenv: () => readPipfileLock(projectDir),
+    requirements: () => readRequirements(projectDir, file),
+  };
+  return { kind, file, deps: await readers[kind]() };
 }
 
 /** 1-based line of a package's entry, so code scanning alerts land on it. */
@@ -49,6 +58,13 @@ export function lockfileLine(kind: LockKind, lines: string[], name: string, vers
         return t.startsWith(`${name}@${version}`) || t.startsWith(`'${name}@${version}`) || t.startsWith(`/${name}@${version}`);
       case "yarn":
         return l === t && (t.startsWith(`${name}@`) || t.startsWith(`"${name}@`));
+      case "uv":
+      case "poetry":
+        return normalizeName("PyPI", t.match(/^name = "([^"]+)"$/)?.[1] ?? "") === name;
+      case "pipenv":
+        return normalizeName("PyPI", t.match(/^"([^"]+)": \{/)?.[1] ?? "") === name;
+      case "requirements":
+        return normalizeName("PyPI", t.match(/^([A-Za-z0-9][A-Za-z0-9._-]*)/)?.[1] ?? "") === name && t.includes(version);
     }
   };
   const i = lines.findIndex(matches);

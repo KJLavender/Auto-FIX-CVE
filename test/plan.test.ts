@@ -5,7 +5,7 @@ import type { Finding } from "../src/types.js";
 function finding(over: Partial<Finding> & { direct?: boolean; version?: string } = {}): Finding {
   const { direct = true, version = "1.0.0", ...rest } = over;
   return {
-    dependency: { name: "pkg", version, paths: [], direct, dev: false, introducedBy: direct ? ["pkg"] : ["parent"] },
+    dependency: { ecosystem: "npm", name: "pkg", version, paths: [], direct, dev: false, introducedBy: direct ? ["pkg"] : ["parent"] },
     vulns: [],
     safeVersion: "1.0.1",
     unfixable: [],

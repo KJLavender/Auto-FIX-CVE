@@ -1,9 +1,10 @@
-import semver from "semver";
 import { appliedBackports, mitigatedIds, readManifest } from "./backport/manifest.js";
 import { findUsages } from "./impact/analyze.js";
+import { findPythonUsages } from "./impact/python.js";
 import { readLockfile } from "./lockfile/index.js";
 import { OsvClient } from "./osv/client.js";
 import type { Finding, Reachability, Usage, Vulnerability } from "./types.js";
+import { isBreakingUpgrade } from "./versions.js";
 
 export interface ScanOptions {
   includeDev: boolean;
@@ -40,16 +41,6 @@ function markMentions(usages: Usage[], vulns: Vulnerability[]): void {
   }
 }
 
-/** Semver treats every 0.x minor (and 0.0.x patch) bump as potentially breaking. */
-export function isBreakingUpgrade(from: string, to: string): boolean {
-  const a = semver.parse(from);
-  const b = semver.parse(to);
-  if (!a || !b) return true;
-  if (a.major !== b.major) return true;
-  if (a.major === 0 && a.minor !== b.minor) return true;
-  return a.major === 0 && a.minor === 0 && a.patch !== b.patch;
-}
-
 export function maxSeverity(vulns: Vulnerability[]): number {
   return Math.max(0, ...vulns.map((v) => SEVERITY_RANK[v.severity?.toUpperCase() ?? ""] ?? 0));
 }
@@ -71,9 +62,10 @@ export async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) =>
 }
 
 export async function scan(projectDir: string, options: ScanOptions): Promise<Finding[]> {
-  const deps = (await readLockfile(projectDir)).deps.filter((d) => options.includeDev || !d.dev);
+  const lock = await readLockfile(projectDir);
+  const deps = lock.deps.filter((d) => options.includeDev || !d.dev);
   const osv = new OsvClient();
-  const hits = await osv.queryBatch(deps.map((d) => ({ name: d.name, version: d.version })));
+  const hits = await osv.queryBatch(deps.map((d) => ({ name: d.name, version: d.version, ecosystem: d.ecosystem })));
 
   // Vulnerabilities fixed by a verified backport for this exact version are not
   // reported again, but only while the patch is really applied.
@@ -87,11 +79,12 @@ export async function scan(projectDir: string, options: ScanOptions): Promise<Fi
   // Also look up the direct dependencies that pull in transitive ones: calling
   // axios is how an app reaches a vulnerable follow-redirects underneath it.
   const introducers = vulnerable.flatMap((v) => (v.dep.direct ? [] : v.dep.introducedBy));
-  const usages = await findUsages(projectDir, [...new Set([...vulnerable.map((v) => v.dep.name), ...introducers])]);
+  const wanted = [...new Set([...vulnerable.map((v) => v.dep.name), ...introducers])];
+  const usages = lock.deps[0]?.ecosystem === "PyPI" ? await findPythonUsages(projectDir, wanted) : await findUsages(projectDir, wanted);
 
   const findings = await mapLimit(vulnerable, CONCURRENCY, async ({ dep, ids }): Promise<Finding> => {
-    const vulns = await osv.getVulns(ids, dep.name);
-    const { version: safeVersion, unfixable } = await osv.findSafeVersion(dep.name, dep.version, vulns);
+    const vulns = await osv.getVulns(ids, dep.name, dep.ecosystem);
+    const { version: safeVersion, unfixable } = await osv.findSafeVersion(dep.name, dep.version, vulns, dep.ecosystem);
     const depUsages = (usages.get(dep.name) ?? []).map((u) => ({ ...u }));
     markMentions(depUsages, vulns);
     const via = dep.direct
@@ -109,7 +102,7 @@ export async function scan(projectDir: string, options: ScanOptions): Promise<Fi
       vulns,
       safeVersion,
       unfixable,
-      breaking: safeVersion !== undefined && isBreakingUpgrade(dep.version, safeVersion),
+      breaking: safeVersion !== undefined && isBreakingUpgrade(dep.ecosystem, dep.version, safeVersion),
       usages: depUsages,
       via,
       reachability,

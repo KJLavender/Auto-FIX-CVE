@@ -1,5 +1,5 @@
-import semver from "semver";
 import type { Vulnerability } from "../types.js";
+import { compareVersions, isValidVersion, normalizeName, type Ecosystem } from "../versions.js";
 
 const OSV_API = "https://api.osv.dev/v1";
 const BATCH_SIZE = 1000;
@@ -28,6 +28,7 @@ export interface SafeVersion {
 export interface PackageQuery {
   name: string;
   version: string;
+  ecosystem?: Ecosystem;
 }
 
 // OSV tags most fix links as WEB rather than FIX, so match on URL shape instead.
@@ -47,7 +48,7 @@ export class OsvClient {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          queries: chunk.map((q) => ({ package: { name: q.name, ecosystem: "npm" }, version: q.version })),
+          queries: chunk.map((q) => ({ package: { name: q.name, ecosystem: q.ecosystem ?? "npm" }, version: q.version })),
         }),
       });
       if (!res.ok) throw new Error(`OSV querybatch failed: ${res.status} ${await res.text()}`);
@@ -69,11 +70,11 @@ export class OsvClient {
     return cached;
   }
 
-  async getVulns(ids: string[], packageName: string): Promise<Vulnerability[]> {
+  async getVulns(ids: string[], packageName: string, ecosystem: Ecosystem = "npm"): Promise<Vulnerability[]> {
     const results: Vulnerability[] = [];
     for (let i = 0; i < ids.length; i += CONCURRENCY) {
       const raw = await Promise.all(ids.slice(i, i + CONCURRENCY).map((id) => this.fetchVuln(id)));
-      results.push(...raw.map((v) => toVulnerability(v, packageName)));
+      results.push(...raw.map((v) => toVulnerability(v, packageName, ecosystem)));
     }
     return results;
   }
@@ -85,35 +86,43 @@ export class OsvClient {
    * Vulnerabilities with no fix anywhere are returned as `unfixable` instead of
    * blocking the fixes that do exist.
    */
-  async findSafeVersion(name: string, current: string, vulns: Vulnerability[]): Promise<SafeVersion> {
+  async findSafeVersion(
+    name: string,
+    current: string,
+    vulns: Vulnerability[],
+    ecosystem: Ecosystem = "npm",
+  ): Promise<SafeVersion> {
     const unfixable = new Set<string>();
     let candidate = current;
     let pending = vulns;
     for (let attempt = 0; attempt < 10; attempt++) {
       const base = candidate;
       for (const v of pending) {
-        const fix = minimalFixAbove(v.fixedVersions, base);
+        const fix = minimalFixAbove(ecosystem, v.fixedVersions, base);
         if (!fix) unfixable.add(v.id);
-        else if (semver.gt(fix, candidate)) candidate = fix;
+        else if (compareVersions(ecosystem, fix, candidate) > 0) candidate = fix;
       }
       if (candidate === current) return { unfixable: [...unfixable] };
-      const [ids] = await this.queryBatch([{ name, version: candidate }]);
+      const [ids] = await this.queryBatch([{ name, version: candidate, ecosystem }]);
       const remaining = ids.filter((id) => !unfixable.has(id));
       if (remaining.length === 0) return { version: candidate, unfixable: [...unfixable] };
-      pending = await this.getVulns(remaining, name);
+      pending = await this.getVulns(remaining, name, ecosystem);
     }
     return { unfixable: [...unfixable] };
   }
 }
 
-function minimalFixAbove(fixed: string[], version: string): string | undefined {
-  return fixed.filter((f) => semver.valid(f) && semver.gt(f, version)).sort(semver.compare)[0];
+function minimalFixAbove(eco: Ecosystem, fixed: string[], version: string): string | undefined {
+  return fixed
+    .filter((f) => isValidVersion(eco, f) && compareVersions(eco, f, version) > 0)
+    .sort((a, b) => compareVersions(eco, a, b))[0];
 }
 
-function toVulnerability(v: OsvVuln, packageName: string): Vulnerability {
+function toVulnerability(v: OsvVuln, packageName: string, ecosystem: Ecosystem): Vulnerability {
+  const wanted = normalizeName(ecosystem, packageName);
   const fixedVersions = new Set<string>();
   for (const a of v.affected ?? []) {
-    if (a.package?.ecosystem !== "npm" || a.package.name !== packageName) continue;
+    if (a.package?.ecosystem !== ecosystem || normalizeName(ecosystem, a.package.name) !== wanted) continue;
     for (const r of a.ranges ?? []) {
       for (const e of r.events) if (e.fixed) fixedVersions.add(e.fixed);
     }

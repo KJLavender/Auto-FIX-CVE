@@ -87,7 +87,7 @@ export async function readNpmLockfile(projectDir: string, file = "package-lock.j
     const key = `${name}@${entry.version}`;
     let dep = byKey.get(key);
     if (!dep) {
-      dep = { name, version: entry.version, paths: [], direct: false, dev: true, introducedBy: [] };
+      dep = { ecosystem: "npm", name, version: entry.version, paths: [], direct: false, dev: true, introducedBy: [] };
       byKey.set(key, dep);
     }
     dep.paths.push(p);
