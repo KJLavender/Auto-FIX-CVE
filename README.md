@@ -6,7 +6,7 @@ Most dependency scanners stop at "upgrade to vX". Auto-FIX-CVE closes the loop. 
 
 On eight real security upgrades that break code (marked, PyJWT, urllib3, Werkzeug and others, across npm, uv, Poetry and Pipenv), it fixed all 57 vulnerabilities with the projects' tests still passing. The six code repairs took one model round each, for about $0.12 in total ([benchmark](#benchmark)).
 
-> Status: early development. `scan` supports JavaScript (npm, pnpm, Yarn classic and Berry), Python (uv, Poetry, Pipenv, pinned `requirements.txt`) and Go (`go.mod`). `fix` supports npm (upgrade, backport, PRs), pnpm and Yarn (upgrade with LLM repair, PRs) uv / Poetry / Pipenv and Go modules (upgrade with LLM repair, PRs).
+> Status: early development. `scan` supports JavaScript (npm, pnpm, Yarn classic and Berry), Python (uv, Poetry, Pipenv, pinned `requirements.txt`) Go (`go.mod`) and Rust (`Cargo.lock`). `fix` supports npm (upgrade, backport, PRs), pnpm and Yarn (upgrade with LLM repair, PRs) uv / Poetry / Pipenv, Go modules and Cargo (upgrade with LLM repair, PRs).
 
 ## How it works
 
@@ -23,13 +23,13 @@ On eight real security upgrades that break code (marked, PyJWT, urllib3, Werkzeu
 What sets it apart:
 
 - **The safe version really is safe.** Every suggested upgrade target is re-checked against OSV, so an upgrade never lands on a different CVE.
-- **Reachability hints.** Each finding is labelled `LIKELY REACHABLE`, `imported` or `not imported`. A usage is flagged when the API it calls (e.g. `_.template`) is named in the advisory. When the advisory lists its vulnerable functions, as Go advisories do, that list is used instead of the prose. Transitive packages are traced to the direct dependency you call: `qs` inside `express` shows the line where you use `express`.
+- **Reachability hints.** Each finding is labelled `LIKELY REACHABLE`, `imported` or `not imported`. A usage is flagged when the API it calls (e.g. `_.template`) is named in the advisory. When the advisory lists its vulnerable functions, as Go and RustSec advisories do, that list is used instead of the prose. Transitive packages are traced to the direct dependency you call: `qs` inside `express` shows the line where you use `express`.
 - **Backports that are proven, not assumed.** A backport is kept only if a PoC reproduces the vulnerability on the unpatched package, passes on the patched one, and still passes after a clean reinstall.
 - **No new dependencies to fix old ones.** Backports are re-applied by a small, dependency-free postinstall script that is committed to your repo. In testing, adding `patch-package` for this pulled in a vulnerable transitive dependency of its own.
 
 ## Usage
 
-Requires Node.js ≥ 22.12 and a lockfile: `package-lock.json` / `npm-shrinkwrap.json` (v2/v3), `pnpm-lock.yaml` (v6–v9) or `yarn.lock` (v1 or Berry). For Python: `uv.lock`, `poetry.lock`, `Pipfile.lock` or a pinned `requirements.txt` (pip-compile / `uv export` `# via` comments are used to rebuild the dependency graph). For Go: `go.mod`. `fix` works with every lockfile above except a plain `requirements.txt`. For Go it raises the requirement in `go.mod` (indirect ones too), runs `go mod tidy`, and verifies with `go build ./...` and `go test ./...`. `fix` also needs a local LLM CLI (see [LLM backend](#llm-backend)).
+Requires Node.js ≥ 22.12 and a lockfile: `package-lock.json` / `npm-shrinkwrap.json` (v2/v3), `pnpm-lock.yaml` (v6–v9) or `yarn.lock` (v1 or Berry). For Python: `uv.lock`, `poetry.lock`, `Pipfile.lock` or a pinned `requirements.txt` (pip-compile / `uv export` `# via` comments are used to rebuild the dependency graph). For Go: `go.mod`. For Rust: `Cargo.lock`. `fix` works with every lockfile above except a plain `requirements.txt`. For Go it raises the requirement in `go.mod` (indirect ones too), runs `go mod tidy`, and verifies with `go build ./...` and `go test ./...`. For Rust it rewrites the requirement in `Cargo.toml` (exact `=` pins stay exact) or, for a transitive crate, runs `cargo update -p crate@old --precise new`, which cargo refuses if another crate's requirement would break; then `cargo build` and `cargo test`. `fix` also needs a local LLM CLI (see [LLM backend](#llm-backend)).
 
 Run it straight from GitHub, no install needed:
 
@@ -318,6 +318,7 @@ The fixtures under `test/fixtures/` are intentionally vulnerable. Copy them to a
 - [x] Fix uv, Poetry and Pipenv projects (upgrade + LLM repair)
 - [x] Scan Go modules (`go.mod`, import analysis, the advisory's vulnerable-function list for reachability)
 - [x] Fix Go modules (`go.mod` + `go mod tidy`, checked in CI with the Go toolchain)
+- [x] Scan and fix Rust crates (`Cargo.lock`, `use` trees, RustSec function lists, `cargo update --precise`; checked in CI with cargo)
 - [ ] Python backports. Deliberately not done yet, for two reasons. Python package managers have no post-install hook, so a patch to site-packages would silently disappear on the next `uv sync` / `pip install`. And Python has no built-in permission sandbox like Node's, so running a model-written PoC derived from untrusted advisory text could not be contained to the same standard.
 
 ## License
