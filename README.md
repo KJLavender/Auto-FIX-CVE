@@ -221,12 +221,12 @@ jobs:
           fail-on: likely      # any | likely | high | none
 ```
 
-The action scans, uploads a SARIF report to code scanning, and runs `verify` when the project has backports. Alerts appear on the lockfile entry **and on the exact lines that call the API named in the advisory**. Inputs: `path`, `recursive`, `fail-on`, `include-dev`, `sarif-file`, `upload-sarif`, `verify`.
+The action scans, writes a Markdown table to the job summary, uploads a SARIF report to code scanning, and runs `verify` when the project has backports. Alerts appear on the lockfile entry **and on the exact lines that call the API named in the advisory**. Inputs: `path`, `recursive`, `fail-on`, `include-dev`, `sarif-file`, `upload-sarif`, `verify`.
 
 The same options are available locally:
 
 ```bash
-node dist/cli.js scan . --sarif results.sarif --fail-on likely
+node dist/cli.js scan . --sarif results.sarif --markdown summary.md --fail-on likely
 ```
 
 ## Benchmark

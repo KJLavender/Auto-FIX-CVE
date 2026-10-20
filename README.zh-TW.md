@@ -221,12 +221,12 @@ jobs:
           fail-on: likely      # any | likely | high | none
 ```
 
-這個 action 會掃描、把 SARIF 報告上傳到 code scanning；專案有 backport 時也會執行 `verify`。Alert 會出現在 lockfile 的套件項目上，**也會出現在呼叫 advisory 點名的 API 的那一行程式碼**。可用的輸入：`path`、`recursive`、`fail-on`、`include-dev`、`sarif-file`、`upload-sarif`、`verify`。
+這個 action 會掃描、把 Markdown 表格寫進 job summary、把 SARIF 報告上傳到 code scanning；專案有 backport 時也會執行 `verify`。Alert 會出現在 lockfile 的套件項目上，**也會出現在呼叫 advisory 點名的 API 的那一行程式碼**。可用的輸入：`path`、`recursive`、`fail-on`、`include-dev`、`sarif-file`、`upload-sarif`、`verify`。
 
 在本機也能用相同的選項：
 
 ```bash
-node dist/cli.js scan . --sarif results.sarif --fail-on likely
+node dist/cli.js scan . --sarif results.sarif --markdown summary.md --fail-on likely
 ```
 
 ## Benchmark

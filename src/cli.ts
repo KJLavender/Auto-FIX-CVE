@@ -16,6 +16,7 @@ import { detectLockfile, detectLockfiles, discoverProjects } from "./lockfile/in
 import { OsvClient } from "./osv/client.js";
 import { abandonBranch, checkPrPrerequisites, createBranch, openPr } from "./pr.js";
 import { formatFixSummary, formatPlan, formatReport } from "./report.js";
+import { toMarkdown } from "./markdown.js";
 import { mergeSarif, toSarif, type SarifLog } from "./sarif.js";
 import { triageFindings } from "./triage.js";
 import { fails, scan, type FailOn } from "./scan.js";
@@ -39,6 +40,7 @@ interface ScanCliOptions {
   dev: boolean;
   maxUsages: number;
   sarif?: string;
+  markdown?: string;
   failOn: FailOn;
   triage?: boolean;
   triageLimit: number;
@@ -60,6 +62,7 @@ program
   .option("--no-dev", "ignore dev-only dependencies")
   .option("--max-usages <n>", "usages to show per package", (v) => Number.parseInt(v, 10), 10)
   .option("--sarif <file>", "also write a SARIF 2.1.0 report (for GitHub code scanning)")
+  .option("--markdown <file>", "also write a Markdown summary (for CI job summaries and PR comments)")
   .addOption(
     new Option("--fail-on <level>", "exit 1 when findings match: any, likely (reachable), high (severity), none")
       .choices(["any", "likely", "high", "none"])
@@ -100,6 +103,7 @@ program
       }
     }
 
+    if (opts.markdown) await writeFile(opts.markdown, toMarkdown(all), "utf8");
     if (opts.sarif) await writeFile(opts.sarif, JSON.stringify(mergeSarif(logs), null, 2) + "\n", "utf8");
     // One project keeps the original output shape: a plain array of findings.
     if (opts.json) console.log(JSON.stringify(all.length === 1 ? all[0].findings : all, null, 2));

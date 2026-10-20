@@ -57,8 +57,9 @@ runs:
         recursive_flag=""
         [ "$INPUT_RECURSIVE" = "true" ] && recursive_flag="--recursive"
         set +e
-        node "$GITHUB_ACTION_PATH/dist/cli.js" scan "$INPUT_PATH" --sarif "$INPUT_SARIF" --fail-on "$INPUT_FAIL_ON" $dev_flag $recursive_flag
+        node "$GITHUB_ACTION_PATH/dist/cli.js" scan "$INPUT_PATH" --sarif "$INPUT_SARIF" --markdown "$RUNNER_TEMP/autofix-cve.md" --fail-on "$INPUT_FAIL_ON" $dev_flag $recursive_flag
         echo "exit-code=$?" >> "$GITHUB_OUTPUT"
+        [ -f "$RUNNER_TEMP/autofix-cve.md" ] && cat "$RUNNER_TEMP/autofix-cve.md" >> "$GITHUB_STEP_SUMMARY"
 
     - name: Upload SARIF
       if: ${{ inputs.upload-sarif == 'true' && always() }}
