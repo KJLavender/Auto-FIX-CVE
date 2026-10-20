@@ -62,6 +62,24 @@ minimist@1.2.5  (direct)  not imported by your code
   → safe version: 1.2.6
 ```
 
+#### LLM triage
+
+```bash
+node dist/cli.js scan path/to/project --triage                 # judge up to 10 packages
+node dist/cli.js scan path/to/project --triage --fail-on likely
+```
+
+For every vulnerable package your code actually uses, the model reads the advisories and the numbered code around each call site (including calls into the direct dependency that pulls a transitive package in) and returns `reachable`, `not reachable` or `unclear`, the reasoning, and the conditions under which it would be exploitable:
+
+```
+requests@2.25.0  (direct)  LIKELY REACHABLE
+  triage: unclear — ... The .netrc leak could apply, since requests.get reads .netrc by default and `url` may be attacker-influenced ...
+idna@2.10  (transitive via requests)  imported
+  triage: REACHABLE — fetch(url) calls requests.get(url), which encodes non-ASCII hostnames with idna.encode() ...
+```
+
+`not reachable` is only allowed when the code itself rules out every advisory; anything that depends on the environment or on where an input comes from is `unclear`. With `--fail-on likely`, a `reachable` verdict fails the build, `not reachable` does not, and `unclear` falls back to the name-matching heuristic. In SARIF, `not reachable` alerts are downgraded to notes. Verdicts can differ between runs, so treat them as a review aid. Cost on the Python example: about $0.15 for five packages.
+
 ### Fix
 
 ```bash

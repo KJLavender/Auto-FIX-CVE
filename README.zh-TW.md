@@ -62,6 +62,24 @@ minimist@1.2.5  (direct)  not imported by your code
   → safe version: 1.2.6
 ```
 
+#### LLM 可達性判讀
+
+```bash
+node dist/cli.js scan path/to/project --triage                 # 最多判讀 10 個套件
+node dist/cli.js scan path/to/project --triage --fail-on likely
+```
+
+對每個你的程式碼確實有用到的漏洞套件，模型會閱讀 advisory，以及每個呼叫點前後附行號的程式碼（遞移依賴則包含呼叫引入它的直接依賴的地方），回傳 `reachable`、`not reachable` 或 `unclear`、判斷理由，以及在什麼條件下會被利用：
+
+```
+requests@2.25.0  (direct)  LIKELY REACHABLE
+  triage: unclear — ... The .netrc leak could apply, since requests.get reads .netrc by default and `url` may be attacker-influenced ...
+idna@2.10  (transitive via requests)  imported
+  triage: REACHABLE — fetch(url) calls requests.get(url), which encodes non-ASCII hostnames with idna.encode() ...
+```
+
+只有在程式碼本身就能排除所有 advisory 時，才允許判成 `not reachable`；取決於執行環境或輸入來源的情況一律是 `unclear`。搭配 `--fail-on likely` 時，`reachable` 會讓 build 失敗，`not reachable` 不會，`unclear` 則退回名稱比對的啟發式判斷。SARIF 中 `not reachable` 的警報會降為 note。判讀結果每次執行可能略有差異，請把它當成 review 的輔助。Python 範例的成本：五個套件約 $0.15。
+
 ### 修復
 
 ```bash

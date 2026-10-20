@@ -48,6 +48,13 @@ export interface ViaUsage {
 
 export type Reachability = "likely" | "imported" | "not-imported";
 
+/** The model's judgement of whether the project's usage can trigger the vulnerabilities. */
+export interface Triage {
+  verdict: "reachable" | "not-reachable" | "unclear";
+  reasoning: string;
+  conditions: string;
+}
+
 export interface Finding {
   dependency: Dependency;
   vulns: Vulnerability[];
@@ -61,4 +68,6 @@ export interface Finding {
   /** For transitive packages: the used direct dependencies that pull them in. */
   via: ViaUsage[];
   reachability: Reachability;
+  /** Set by `scan --triage`. */
+  triage?: Triage;
 }

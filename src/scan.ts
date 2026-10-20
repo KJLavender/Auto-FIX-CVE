@@ -45,6 +45,25 @@ export function maxSeverity(vulns: Vulnerability[]): number {
   return Math.max(0, ...vulns.map((v) => SEVERITY_RANK[v.severity?.toUpperCase() ?? ""] ?? 0));
 }
 
+export type FailOn = "any" | "likely" | "high" | "none";
+
+/** Whether a finding should fail `scan --fail-on <level>`. */
+export function fails(f: Finding, failOn: FailOn): boolean {
+  switch (failOn) {
+    case "any":
+      return true;
+    case "likely":
+      // A definite model verdict overrides the name-matching heuristic; "unclear" falls back to it.
+      if (f.triage?.verdict === "reachable") return true;
+      if (f.triage?.verdict === "not-reachable") return false;
+      return f.reachability === "likely";
+    case "high":
+      return maxSeverity(f.vulns) >= 3;
+    case "none":
+      return false;
+  }
+}
+
 const CONCURRENCY = 8;
 
 /** Like Promise.all over `items`, with at most `limit` calls in flight; keeps input order. */

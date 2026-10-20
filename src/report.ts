@@ -1,6 +1,6 @@
 import pc from "picocolors";
 import type { FixResult, FixStatus, PlanStep } from "./fix/upgrade.js";
-import type { Finding, Reachability } from "./types.js";
+import type { Finding, Reachability, Triage } from "./types.js";
 
 const STATUS_LABEL: Record<FixStatus, string> = {
   fixed: pc.green("FIXED"),
@@ -53,6 +53,12 @@ const REACH_LABEL: Record<Reachability, string> = {
   "not-imported": pc.dim("not imported by your code"),
 };
 
+const TRIAGE_LABEL: Record<Triage["verdict"], string> = {
+  reachable: pc.red("triage: REACHABLE —"),
+  "not-reachable": pc.green("triage: not reachable —"),
+  unclear: pc.yellow("triage: unclear —"),
+};
+
 function severityColor(sev: string | undefined): (s: string) => string {
   switch (sev?.toUpperCase()) {
     case "CRITICAL":
@@ -76,6 +82,10 @@ export function formatReport(findings: Finding[], maxUsages = 10): string {
     const d = f.dependency;
     const kind = d.direct ? "direct" : `transitive via ${d.introducedBy.join(", ") || "?"}`;
     out.push(`${pc.bold(`${d.name}@${d.version}`)}  ${pc.dim(`(${kind}${d.dev ? ", dev" : ""})`)}  ${REACH_LABEL[f.reachability]}`);
+    if (f.triage) {
+      out.push(`  ${TRIAGE_LABEL[f.triage.verdict]} ${f.triage.reasoning}`);
+      out.push(pc.dim(`    exploitable if: ${f.triage.conditions}`));
+    }
 
     for (const v of f.vulns) {
       const cves = v.aliases.filter((a) => a.startsWith("CVE-"));

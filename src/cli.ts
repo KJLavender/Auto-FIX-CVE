@@ -17,25 +17,11 @@ import { OsvClient } from "./osv/client.js";
 import { abandonBranch, checkPrPrerequisites, createBranch, openPr } from "./pr.js";
 import { formatFixSummary, formatPlan, formatReport } from "./report.js";
 import { toSarif } from "./sarif.js";
-import { maxSeverity, scan } from "./scan.js";
-import type { Finding } from "./types.js";
+import { triageFindings } from "./triage.js";
+import { fails, scan, type FailOn } from "./scan.js";
 
 const VERSION = "0.1.0";
 
-type FailOn = "any" | "likely" | "high" | "none";
-
-function fails(f: Finding, failOn: FailOn): boolean {
-  switch (failOn) {
-    case "any":
-      return true;
-    case "likely":
-      return f.reachability === "likely";
-    case "high":
-      return maxSeverity(f.vulns) >= 3;
-    case "none":
-      return false;
-  }
-}
 
 async function confirm(question: string): Promise<boolean> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
@@ -66,9 +52,28 @@ program
       .choices(["any", "likely", "high", "none"])
       .default("any"),
   )
-  .action(async (dir: string, opts: { json?: boolean; dev: boolean; maxUsages: number; sarif?: string; failOn: FailOn }) => {
+  .option("--triage", "ask the model whether each imported vulnerable package is reachable from your call sites")
+  .option("--triage-limit <n>", "packages to triage at most", (v) => Number.parseInt(v, 10), 10)
+  .action(
+    async (
+      dir: string,
+      opts: {
+        json?: boolean;
+        dev: boolean;
+        maxUsages: number;
+        sarif?: string;
+        failOn: FailOn;
+        triage?: boolean;
+        triageLimit: number;
+      },
+    ) => {
     const projectDir = path.resolve(dir);
     const findings = await scan(projectDir, { includeDev: opts.dev });
+    if (opts.triage) {
+      const log = (m: string) => console.error(pc.dim(m));
+      const cost = await triageFindings(projectDir, findings, new CliBackend(), opts.triageLimit, log);
+      log(`Triage cost: $${cost.toFixed(4)}`);
+    }
     if (opts.sarif) {
       const sarif = await toSarif(projectDir, findings, VERSION);
       await writeFile(opts.sarif, JSON.stringify(sarif, null, 2) + "\n", "utf8");

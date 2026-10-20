@@ -61,12 +61,16 @@ export async function toSarif(
       }
 
       const named = f.usages.filter((u) => u.mentionedBy.includes(v.id));
+      // A model verdict of "not reachable" keeps the alert but stops it from blocking.
+      const level = f.triage?.verdict === "not-reachable" ? "note" : (LEVEL[sev] ?? "warning");
+      const triage = f.triage ? ` Triage: ${f.triage.verdict}. ${f.triage.reasoning}` : "";
       results.push({
         ruleId: v.id,
-        level: LEVEL[sev] ?? "warning",
+        level,
         message: {
-          text: `${name}@${installed} is affected by ${cve ?? v.id}: ${v.summary}. ${fix} Reachability: ${f.reachability}.`,
+          text: `${name}@${installed} is affected by ${cve ?? v.id}: ${v.summary}. ${fix} Reachability: ${f.reachability}.${triage}`,
         },
+        ...(f.triage ? { properties: { triage: f.triage } } : {}),
         locations: [location(uri(lockName), lockfileLine(kind, lock, name, installed))],
         relatedLocations: [
           ...f.usages.map((u) => location(uri(u.file), u.line, u.column, `uses ${name} (${u.symbol})`)),
@@ -81,7 +85,7 @@ export async function toSarif(
       for (const u of named) {
         results.push({
           ruleId: v.id,
-          level: LEVEL[sev] ?? "warning",
+          level,
           message: { text: `Calls \`${u.symbol}\` from ${name}@${installed}, the API named in ${cve ?? v.id}. ${fix}` },
           locations: [location(uri(u.file), u.line, u.column)],
           partialFingerprints: { callSite: `${u.file}/${u.symbol}/${v.id}` },
