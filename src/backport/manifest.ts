@@ -28,8 +28,18 @@ export interface IgnoreRule {
 }
 
 export interface Manifest {
+  $schema?: string;
   backports: BackportRecord[];
   ignore?: IgnoreRule[];
+}
+
+/** Lets editors validate and autocomplete the file, ignore rules in particular. */
+export const SCHEMA_URL = "https://raw.githubusercontent.com/KJLavender/Auto-FIX-CVE/main/schema/autofix-cve.schema.json";
+
+async function writeManifest(projectDir: string, manifest: Manifest): Promise<void> {
+  const { $schema, ...rest } = manifest;
+  const doc = { $schema: $schema ?? SCHEMA_URL, ...rest };
+  await writeFile(path.join(projectDir, MANIFEST), JSON.stringify(doc, null, 2) + "\n", "utf8");
 }
 
 /** Whether a rule still applies on `today` (rules without a reason never apply). */
@@ -57,7 +67,7 @@ export async function addBackport(projectDir: string, record: BackportRecord): P
     pocs: union(previous?.pocs, record.pocs),
     fixCommits: union(previous?.fixCommits, record.fixCommits),
   });
-  await writeFile(path.join(projectDir, MANIFEST), JSON.stringify(manifest, null, 2) + "\n", "utf8");
+  await writeManifest(projectDir, manifest);
 }
 
 /** Backports whose edits are actually present in node_modules (e.g. not lost to `--ignore-scripts`). */
@@ -77,7 +87,7 @@ export async function removeBackport(projectDir: string, name: string, version: 
   if (stale.length === 0) return;
   for (const b of stale) await rm(path.join(projectDir, b.patch), { force: true });
   manifest.backports = manifest.backports.filter((b) => !stale.includes(b));
-  await writeFile(path.join(projectDir, MANIFEST), JSON.stringify(manifest, null, 2) + "\n", "utf8");
+  await writeManifest(projectDir, manifest);
 }
 
 /** Vulnerability ids already mitigated by a backport for exactly this installed version. */

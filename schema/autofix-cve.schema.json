@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/KJLavender/Auto-FIX-CVE/main/schema/autofix-cve.schema.json",
+  "title": "Auto-FIX-CVE project file",
+  "description": "Backports applied by `autofix-cve fix` and vulnerabilities the team accepted as risks.",
+  "type": "object",
+  "properties": {
+    "$schema": { "type": "string" },
+    "backports": {
+      "description": "Written by `autofix-cve fix`; not meant to be edited by hand.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["package", "version", "vulns", "patch", "pocs", "fixCommits", "date"],
+        "properties": {
+          "package": { "type": "string" },
+          "version": { "type": "string" },
+          "vulns": { "type": "array", "items": { "type": "string" } },
+          "patch": { "type": "string" },
+          "pocs": { "type": "array", "items": { "type": "string" } },
+          "fixCommits": { "type": "array", "items": { "type": "string" } },
+          "date": { "type": "string" }
+        }
+      }
+    },
+    "ignore": {
+      "description": "Accepted risks. A rule without a reason, or past its `until` date, is not applied.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "reason"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "GHSA, PYSEC, GO, RUSTSEC or CVE id.",
+            "type": "string",
+            "pattern": "^(GHSA-|PYSEC-|GO-|RUSTSEC-|CVE-)"
+          },
+          "package": { "description": "Limit the rule to one package.", "type": "string" },
+          "reason": { "description": "Why this vulnerability is accepted.", "type": "string", "minLength": 1 },
+          "until": { "description": "YYYY-MM-DD; reported again after this day.", "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" }
+        }
+      }
+    }
+  }
+}

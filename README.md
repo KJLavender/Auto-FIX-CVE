@@ -108,6 +108,7 @@ Record vulnerabilities you decided not to fix in `.autofix-cve.json`. A reason i
 
 ```json
 {
+  "$schema": "https://raw.githubusercontent.com/KJLavender/Auto-FIX-CVE/main/schema/autofix-cve.schema.json",
   "backports": [],
   "ignore": [
     { "id": "CVE-2021-44906", "package": "minimist", "reason": "only parses our own build script arguments", "until": "2027-01-01" }
@@ -115,7 +116,7 @@ Record vulnerabilities you decided not to fix in `.autofix-cve.json`. A reason i
 }
 ```
 
-`id` can be the GHSA, PYSEC or CVE id. Ignored vulnerabilities are left out of findings, `--fail-on`, SARIF and `fix` (including the upgrade search), and `scan` lists them with their reasons. A rule without a reason, or past its `until` date, is not applied and `scan` says so.
+`id` can be a GHSA, PYSEC, GO, RUSTSEC or CVE id. The `$schema` line (added automatically when the tool writes the file) gives editors autocompletion and flags a missing reason or a malformed date. Ignored vulnerabilities are left out of findings, `--fail-on`, SARIF and `fix` (including the upgrade search), and `scan` lists them with their reasons. A rule without a reason, or past its `until` date, is not applied and `scan` says so.
 
 ### Fix
 

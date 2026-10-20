@@ -108,6 +108,7 @@ idna@2.10  (transitive via requests)  imported
 
 ```json
 {
+  "$schema": "https://raw.githubusercontent.com/KJLavender/Auto-FIX-CVE/main/schema/autofix-cve.schema.json",
   "backports": [],
   "ignore": [
     { "id": "CVE-2021-44906", "package": "minimist", "reason": "only parses our own build script arguments", "until": "2027-01-01" }
@@ -115,7 +116,7 @@ idna@2.10  (transitive via requests)  imported
 }
 ```
 
-`id` 可以填 GHSA、PYSEC 或 CVE 編號。被忽略的漏洞不會出現在結果、`--fail-on`、SARIF 和 `fix`（包含升級版本的搜尋）中，`scan` 則會列出它們和各自的理由。沒有理由或已經超過 `until` 日期的規則不會生效，`scan` 也會提示。
+`id` 可以填 GHSA、PYSEC、GO、RUSTSEC 或 CVE 編號。`$schema` 這一行（工具寫入檔案時會自動加上）讓編輯器提供自動完成，並標出缺少理由或日期格式錯誤的規則。被忽略的漏洞不會出現在結果、`--fail-on`、SARIF 和 `fix`（包含升級版本的搜尋）中，`scan` 則會列出它們和各自的理由。沒有理由或已經超過 `until` 日期的規則不會生效，`scan` 也會提示。
 
 ### 修復
 

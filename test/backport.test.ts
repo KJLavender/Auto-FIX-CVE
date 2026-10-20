@@ -6,7 +6,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { removedLines, splitDiff } from "../src/backport/github.js";
 import { anchorsFor, locateTargets } from "../src/backport/locate.js";
-import { addBackport, readManifest, removeBackport } from "../src/backport/manifest.js";
+import { addBackport, readManifest, removeBackport, SCHEMA_URL } from "../src/backport/manifest.js";
 import { APPLY_SCRIPT, ensurePostinstall, patchApplied, readPatch, writePatch } from "../src/backport/replay.js";
 
 const DIFF = `diff --git a/src/rules.js b/src/rules.js
@@ -121,5 +121,17 @@ describe("repeated backports", () => {
     await removeBackport(dir, "lib", "1.0.0");
     expect((await readManifest(dir)).backports).toEqual([]);
     expect(existsSync(path.join(dir, rel))).toBe(false);
+  });
+});
+
+describe("manifest schema", () => {
+  it("points the written file at the JSON schema and keeps a custom one", async () => {
+    const dir = await tempProject();
+    await addBackport(dir, { package: "lib", version: "1.0.0", patch: "p.json", vulns: [], pocs: [], fixCommits: [], date: "" });
+    const written = JSON.parse(await readFile(path.join(dir, ".autofix-cve.json"), "utf8"));
+    expect(Object.keys(written)[0]).toBe("$schema");
+    expect(written.$schema).toBe(SCHEMA_URL);
+    const schema = JSON.parse(await readFile(path.join(import.meta.dirname, "..", "schema", "autofix-cve.schema.json"), "utf8"));
+    expect(schema.$id).toBe(SCHEMA_URL);
   });
 });
