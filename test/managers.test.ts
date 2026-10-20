@@ -67,7 +67,7 @@ describe("uv manager", () => {
   });
 
   it("refuses package managers it cannot drive", () => {
-    expect(() => managerFor("pipenv", ".")).toThrow(/pipenv/);
+    expect(() => managerFor("requirements", ".")).toThrow(/requirements/);
   });
 });
 
@@ -108,5 +108,27 @@ describe("poetry manager", () => {
     expect(text).toContain('pytest = "^9.0.3"');
     expect(text).toContain('"requests==2.33.0"');
     expect(text).toContain('python = "^3.11"');
+  });
+});
+
+describe("pipenv manager", () => {
+  it("rewrites Pipfile entries: pins stay pinned, other specifiers become a floor", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "autofix-pipenv-"));
+    await writeFile(
+      path.join(dir, "Pipfile"),
+      ['[packages]', 'requests = "==2.25.0"', 'urllib3 = "*"', 'Jinja2 = { version = "~=2.11", extras = ["i18n"] }', "", "[dev-packages]", 'pytest = ">=6"', ""].join("\n"),
+    );
+    const pipenv = managerFor("pipenv", dir);
+    expect(pipenv.canOverride).toBe(false);
+    expect(await pipenv.declares(dep("jinja2", "2.11.2"))).toBe(true);
+    await pipenv.require(dep("requests", "2.25.0"), "2.33.0", true, false);
+    await pipenv.require(dep("urllib3", "1.26.5"), "2.8.0", true, false);
+    await pipenv.require(dep("jinja2", "2.11.2"), "3.1.6", true, false);
+    await pipenv.require(dep("pytest", "6.2.0"), "9.0.3", true, false);
+    const text = await readFile(path.join(dir, "Pipfile"), "utf8");
+    expect(text).toContain('requests = "==2.33.0"');
+    expect(text).toContain('urllib3 = ">=2.8.0"');
+    expect(text).toContain('Jinja2 = { version = ">=3.1.6", extras = ["i18n"] }');
+    expect(text).toContain('pytest = ">=9.0.3"');
   });
 });

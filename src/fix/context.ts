@@ -11,6 +11,7 @@ const DEFAULT_TEST = /no test specified/;
 export async function detectChecks(projectDir: string): Promise<string[]> {
   if (existsSync(path.join(projectDir, "uv.lock"))) return detectPythonChecks(projectDir, "uv run");
   if (existsSync(path.join(projectDir, "poetry.lock"))) return detectPythonChecks(projectDir, `${process.env.AUTOFIX_POETRY ?? "poetry"} run`);
+  if (existsSync(path.join(projectDir, "Pipfile.lock"))) return detectPythonChecks(projectDir, `${process.env.AUTOFIX_PIPENV ?? "pipenv"} run`, "Pipfile");
   const pkg = JSON.parse(await readFile(path.join(projectDir, "package.json"), "utf8")) as {
     scripts?: Record<string, string>;
   };
@@ -26,10 +27,8 @@ export async function detectChecks(projectDir: string): Promise<string[]> {
 }
 
 /** pytest when the project uses it (mentioned in pyproject.toml, or a tests/ directory). */
-async function detectPythonChecks(projectDir: string, runner: string): Promise<string[]> {
-  const pyproject = existsSync(path.join(projectDir, "pyproject.toml"))
-    ? await readFile(path.join(projectDir, "pyproject.toml"), "utf8")
-    : "";
+async function detectPythonChecks(projectDir: string, runner: string, manifest = "pyproject.toml"): Promise<string[]> {
+  const pyproject = existsSync(path.join(projectDir, manifest)) ? await readFile(path.join(projectDir, manifest), "utf8") : "";
   const usesPytest =
     /\bpytest\b/.test(pyproject) || existsSync(path.join(projectDir, "tests")) || existsSync(path.join(projectDir, "test"));
   return usesPytest ? [`${runner} pytest -q`] : [];

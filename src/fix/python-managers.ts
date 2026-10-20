@@ -131,6 +131,63 @@ export class UvManager extends PythonManager {
   }
 }
 
+// ---------------------------------------------------------------- shared table rewriting
+
+/** Rewrites `key = "spec"` and `key = { version = "spec", ... }` lines for every matching key. */
+function rewriteTableEntries(text: string, keys: string[], next: (old: string) => string): string {
+  for (const key of keys) {
+    const quoted = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    text = text.replace(new RegExp(`^(\\s*"?${quoted}"?\\s*=\\s*)"([^"]*)"`, "gm"), (_m, lead: string, old: string) => `${lead}"${next(old)}"`);
+    text = text.replace(
+      new RegExp(`^(\\s*"?${quoted}"?\\s*=\\s*\\{[^}\\n]*version\\s*=\\s*)"([^"]*)"`, "gm"),
+      (_m, lead: string, old: string) => `${lead}"${next(old)}"`,
+    );
+  }
+  return text;
+}
+
+// ---------------------------------------------------------------- Pipenv
+
+const PIPENV = process.env.AUTOFIX_PIPENV ?? "pipenv";
+
+/** Pipfile specifier for the fix: a pin stays pinned, anything else becomes a floor. */
+export function pipfileSpecifier(old: string, to: string, exact: boolean): string {
+  return exact || old.trim().startsWith("==") ? `==${to}` : `>=${to}`;
+}
+
+export class PipenvManager extends PythonManager {
+  // Pipfile only lists what the project asks for; there is no way to force a transitive version.
+  canOverride = false;
+  manifestFiles = ["Pipfile", "Pipfile.lock"];
+  protected runner = `${PIPENV} run`;
+
+  private pipfile() {
+    return path.join(this.dir, "Pipfile");
+  }
+
+  private async keys(name: string): Promise<string[]> {
+    const doc = parseToml(await readFile(this.pipfile(), "utf8")) as Record<string, any>;
+    const keys = [...Object.keys(doc.packages ?? {}), ...Object.keys(doc["dev-packages"] ?? {})];
+    return [...new Set(keys.filter((k) => normalizeName("PyPI", k) === name))];
+  }
+
+  async declares(dep: Dependency): Promise<boolean> {
+    return (await this.keys(dep.name)).length > 0;
+  }
+
+  async require(dep: Dependency, to: string, _direct: boolean, exact: boolean): Promise<void> {
+    const text = await readFile(this.pipfile(), "utf8");
+    const next = rewriteTableEntries(text, await this.keys(dep.name), (old) => pipfileSpecifier(old, to, exact));
+    await writeFile(this.pipfile(), next, "utf8");
+  }
+
+  async install(): Promise<CommandResult> {
+    const lock = await run(`${PIPENV} lock`, this.dir);
+    if (!lock.ok) return lock;
+    return run(`${PIPENV} sync --dev`, this.dir);
+  }
+}
+
 // ---------------------------------------------------------------- Poetry
 
 /** `poetry`, or e.g. `uvx poetry` when Poetry is not installed globally. */
@@ -167,19 +224,8 @@ export class PoetryManager extends PythonManager {
 
   async require(dep: Dependency, to: string, _direct: boolean, exact: boolean): Promise<void> {
     const doc = await this.doc();
-    let text = rewritePep621(await readFile(this.file(), "utf8"), pep621Requirements(doc, dep.name), to, exact);
-    for (const key of poetryKeys(doc, dep.name)) {
-      const quoted = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      // `name = "^1.2"` and `name = { version = "^1.2", extras = [...] }`
-      text = text.replace(
-        new RegExp(`^(\\s*"?${quoted}"?\\s*=\\s*)"([^"]*)"`, "gm"),
-        (_m, lead: string, old: string) => `${lead}"${poetryConstraint(old, to, exact)}"`,
-      );
-      text = text.replace(
-        new RegExp(`^(\\s*"?${quoted}"?\\s*=\\s*\\{[^}\\n]*version\\s*=\\s*)"([^"]*)"`, "gm"),
-        (_m, lead: string, old: string) => `${lead}"${poetryConstraint(old, to, exact)}"`,
-      );
-    }
+    const withPep621 = rewritePep621(await readFile(this.file(), "utf8"), pep621Requirements(doc, dep.name), to, exact);
+    const text = rewriteTableEntries(withPep621, poetryKeys(doc, dep.name), (old) => poetryConstraint(old, to, exact));
     await writeFile(this.file(), text, "utf8");
   }
 

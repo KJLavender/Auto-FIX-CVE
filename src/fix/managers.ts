@@ -5,7 +5,7 @@ import { readLockfile, type LockKind } from "../lockfile/index.js";
 import type { Dependency } from "../types.js";
 import { changelogExcerpt, exportShape } from "./context.js";
 import { run, type CommandResult } from "./exec.js";
-import { PoetryManager, UvManager } from "./python-managers.js";
+import { PipenvManager, PoetryManager, UvManager } from "./python-managers.js";
 
 export { splitRequirement } from "./python-managers.js";
 
@@ -93,12 +93,13 @@ class NpmManager implements PackageManager {
 }
 
 /** Package managers `fix` can drive; others can be scanned but not fixed yet. */
-export const FIXABLE: LockKind[] = ["npm", "uv", "poetry"];
+export const FIXABLE: LockKind[] = ["npm", "uv", "poetry", "pipenv"];
 
 export function managerFor(kind: LockKind, dir: string): PackageManager {
   if (kind === "npm") return new NpmManager(dir);
   if (kind === "uv") return new UvManager(dir);
   if (kind === "poetry") return new PoetryManager(dir);
+  if (kind === "pipenv") return new PipenvManager(dir);
   throw new Error(`fix does not support ${kind} projects yet`);
 }
 

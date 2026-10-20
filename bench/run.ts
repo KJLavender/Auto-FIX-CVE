@@ -17,6 +17,10 @@ const ROOT = path.resolve(import.meta.dirname, "..");
 const CASES = path.join(ROOT, "bench", "cases");
 const CLI = path.join(ROOT, "dist", "cli.js");
 
+// Keep Pipenv environments inside each temp project instead of a shared user directory.
+process.env.PIPENV_VENV_IN_PROJECT ??= "1";
+process.env.PIPENV_IGNORE_VIRTUALENVS ??= "1";
+
 interface FixResult {
   package: string;
   from: string;
@@ -64,7 +68,9 @@ function runCase(name: string): Row {
       ? "uv sync --all-groups -q"
       : existsSync(path.join(dir, "poetry.lock"))
         ? `${poetry} install --all-groups --no-root -q`
-        : "npm install --ignore-scripts --no-audit --no-fund",
+        : existsSync(path.join(dir, "Pipfile.lock"))
+          ? `${process.env.AUTOFIX_PIPENV ?? "pipenv"} sync --dev`
+          : "npm install --ignore-scripts --no-audit --no-fund",
     dir,
   );
   if (!install.ok) throw new Error(`${name}: install failed\n${install.out}`);
@@ -83,7 +89,7 @@ function runCase(name: string): Row {
   const after = countVulns(dir);
 
   // Lines of the project's own code the model changed (manifests and lockfiles excluded).
-  const stat = sh("git diff --numstat -- . \":(exclude)package.json\" \":(exclude)package-lock.json\" \":(exclude)pyproject.toml\" \":(exclude)uv.lock\" \":(exclude)poetry.lock\"", dir).out;
+  const stat = sh("git diff --numstat -- . \":(exclude)package.json\" \":(exclude)package-lock.json\" \":(exclude)pyproject.toml\" \":(exclude)uv.lock\" \":(exclude)poetry.lock\" \":(exclude)Pipfile\" \":(exclude)Pipfile.lock\"", dir).out;
   const [added, removed] = stat
     .split(/\r?\n/)
     // git also prints warnings (e.g. about line endings) on the same stream; keep only numstat rows.
