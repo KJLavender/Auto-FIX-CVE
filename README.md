@@ -31,9 +31,16 @@ What sets it apart:
 
 Requires Node.js ≥ 22.12 and a lockfile: `package-lock.json` / `npm-shrinkwrap.json` (v2/v3), `pnpm-lock.yaml` (v6–v9) or `yarn.lock` (v1 or Berry). For Python: `uv.lock`, `poetry.lock`, `Pipfile.lock` or a pinned `requirements.txt` (pip-compile / `uv export` `# via` comments are used to rebuild the dependency graph). `fix` works with every lockfile above except a plain `requirements.txt`, which has no tool to regenerate it. `fix` also needs a local LLM CLI (see [LLM backend](#llm-backend)).
 
+Run it straight from GitHub, no install needed:
+
 ```bash
-npm install
-npm run build
+npx github:KJLavender/Auto-FIX-CVE scan path/to/project
+```
+
+Or from a clone (the examples below use this form):
+
+```bash
+npm install                                 # also builds dist/
 node dist/cli.js scan   path/to/project     # report CVEs and where your code uses them
 node dist/cli.js fix    path/to/project     # plan, confirm, fix, verify
 node dist/cli.js verify path/to/project     # re-run backport PoCs (for CI)

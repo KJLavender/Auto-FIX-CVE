@@ -31,9 +31,16 @@
 
 需要 Node.js ≥ 22.12 與 lockfile：`package-lock.json` / `npm-shrinkwrap.json`（v2/v3）、`pnpm-lock.yaml`（v6–v9）或 `yarn.lock`（v1 或 Berry）。Python 則是 `uv.lock`、`poetry.lock`、`Pipfile.lock` 或固定版本的 `requirements.txt`（會利用 pip-compile / `uv export` 的 `# via` 註解重建依賴圖）。上述 lockfile 除了單純的 `requirements.txt`（沒有工具可以重新產生）以外，`fix` 都支援。`fix` 另外需要本機的 LLM CLI（見 [LLM backend](#llm-backend)）。
 
+不用安裝，直接從 GitHub 執行：
+
 ```bash
-npm install
-npm run build
+npx github:KJLavender/Auto-FIX-CVE scan path/to/project
+```
+
+或者 clone 下來使用（以下範例都用這種寫法）：
+
+```bash
+npm install                                 # 同時會 build 出 dist/
 node dist/cli.js scan   path/to/project     # 回報 CVE 與程式碼中的使用位置
 node dist/cli.js fix    path/to/project     # 計畫 → 確認 → 修復 → 驗證
 node dist/cli.js verify path/to/project     # 重跑 backport 的 PoC（CI 用）
