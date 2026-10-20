@@ -259,12 +259,19 @@ jobs:
           fail-on: likely      # any | likely | high | none
 ```
 
-這個 action 會掃描、把 Markdown 表格寫進 job summary、把 SARIF 報告上傳到 code scanning；專案有 backport 時也會執行 `verify`。Alert 會出現在 lockfile 的套件項目上，**也會出現在呼叫 advisory 點名的 API 的那一行程式碼**。可用的輸入：`path`、`recursive`、`fail-on`、`include-dev`、`sarif-file`、`upload-sarif`、`verify`。
+這個 action 會掃描、把 Markdown 表格寫進 job summary、把 SARIF 報告上傳到 code scanning；專案有 backport 時也會執行 `verify`。Alert 會出現在 lockfile 的套件項目上，**也會出現在呼叫 advisory 點名的 API 的那一行程式碼**。可用的輸入：`path`、`recursive`、`baseline`、`fail-on`、`include-dev`、`sarif-file`、`upload-sarif`、`verify`。
 
 在本機也能用相同的選項：
 
 ```bash
 node dist/cli.js scan . --sarif results.sarif --markdown summary.md --fail-on likely
+```
+
+要在舊專案導入嗎？先把目前已有的漏洞記錄下來，之後只有新出現的漏洞會讓 build 失敗；已知的漏洞仍會顯示在報告中：
+
+```bash
+node dist/cli.js scan . --baseline .autofix-baseline.json --update-baseline   # 執行一次，並 commit 這個檔案
+node dist/cli.js scan . --baseline .autofix-baseline.json                     # 在 CI 中
 ```
 
 ## Benchmark

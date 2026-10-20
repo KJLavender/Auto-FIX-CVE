@@ -8,6 +8,7 @@ import pc from "picocolors";
 import { backportFinding, canBackport } from "./backport/backport.js";
 import { appliedBackports, MANIFEST, readManifest, ruleActive } from "./backport/manifest.js";
 import { runPoc } from "./backport/poc.js";
+import { readBaseline, splitByBaseline, writeBaseline } from "./baseline.js";
 import { checkTools } from "./doctor.js";
 import { detectChecks } from "./fix/context.js";
 import { run } from "./fix/exec.js";
@@ -44,6 +45,8 @@ interface ScanCliOptions {
   maxUsages: number;
   sarif?: string;
   markdown?: string;
+  baseline?: string;
+  updateBaseline?: boolean;
   failOn: FailOn;
   triage?: boolean;
   triageLimit: number;
@@ -72,6 +75,8 @@ program
   .option("--max-usages <n>", "usages to show per package", (v) => Number.parseInt(v, 10), 10)
   .option("--sarif <file>", "also write a SARIF 2.1.0 report (for GitHub code scanning)")
   .option("--markdown <file>", "also write a Markdown summary (for CI job summaries and PR comments)")
+  .option("--baseline <file>", "only vulnerabilities not in this baseline count for --fail-on")
+  .option("--update-baseline", "write the current vulnerabilities to the --baseline file and exit 0")
   .addOption(
     new Option("--fail-on <level>", "exit 1 when findings match: any, likely (reachable), high (severity), none")
       .choices(["any", "likely", "high", "none"])
@@ -127,7 +132,22 @@ program
     if (opts.sarif) await writeFile(opts.sarif, JSON.stringify(mergeSarif(logs), null, 2) + "\n", "utf8");
     // One project keeps the original output shape: a plain array of findings.
     if (opts.json) console.log(JSON.stringify(all.length === 1 ? all[0].findings : all, null, 2));
-    process.exitCode = all.some((p) => p.findings.some((f) => fails(f, opts.failOn))) ? 1 : 0;
+    const everything = all.flatMap((p) => p.findings);
+    if (opts.updateBaseline && !opts.baseline) throw new Error("--update-baseline needs --baseline <file>.");
+    if (opts.baseline && opts.updateBaseline) {
+      const count = await writeBaseline(opts.baseline, everything);
+      console.error(pc.dim(`Baseline written to ${opts.baseline} (${count} known vulnerabilities).`));
+      process.exitCode = 0;
+      return;
+    }
+    let gate = everything;
+    if (opts.baseline) {
+      // Known vulnerabilities stay visible in the report but only new ones can fail the build.
+      const { fresh, known } = splitByBaseline(everything, await readBaseline(opts.baseline));
+      console.error(pc.dim(`Baseline: ${known} known, ${fresh.reduce((n, f) => n + f.vulns.length, 0)} new.`));
+      gate = fresh;
+    }
+    process.exitCode = gate.some((f) => fails(f, opts.failOn)) ? 1 : 0;
   });
 
 program

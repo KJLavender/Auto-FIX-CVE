@@ -8,6 +8,9 @@ inputs:
   path:
     description: Project directory containing package-lock.json, relative to the repository root.
     default: "."
+  baseline:
+    description: Baseline file; only vulnerabilities not in it fail the job (create it with scan --update-baseline).
+    default: ""
   recursive:
     description: Also scan every project in subdirectories (monorepos).
     default: "false"
@@ -51,13 +54,16 @@ runs:
         INPUT_SARIF: ${{ inputs.sarif-file }}
         INPUT_DEV: ${{ inputs.include-dev }}
         INPUT_RECURSIVE: ${{ inputs.recursive }}
+        INPUT_BASELINE: ${{ inputs.baseline }}
       run: |
         dev_flag=""
         [ "$INPUT_DEV" = "true" ] || dev_flag="--no-dev"
         recursive_flag=""
         [ "$INPUT_RECURSIVE" = "true" ] && recursive_flag="--recursive"
+        baseline_flag=""
+        [ -n "$INPUT_BASELINE" ] && baseline_flag="--baseline $INPUT_BASELINE"
         set +e
-        node "$GITHUB_ACTION_PATH/dist/cli.js" scan "$INPUT_PATH" --sarif "$INPUT_SARIF" --markdown "$RUNNER_TEMP/autofix-cve.md" --fail-on "$INPUT_FAIL_ON" $dev_flag $recursive_flag
+        node "$GITHUB_ACTION_PATH/dist/cli.js" scan "$INPUT_PATH" --sarif "$INPUT_SARIF" --markdown "$RUNNER_TEMP/autofix-cve.md" --fail-on "$INPUT_FAIL_ON" $dev_flag $recursive_flag $baseline_flag
         echo "exit-code=$?" >> "$GITHUB_OUTPUT"
         [ -f "$RUNNER_TEMP/autofix-cve.md" ] && cat "$RUNNER_TEMP/autofix-cve.md" >> "$GITHUB_STEP_SUMMARY"
 
