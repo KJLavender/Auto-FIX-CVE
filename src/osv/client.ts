@@ -16,6 +16,8 @@ interface OsvVuln {
   affected?: {
     package?: { name: string; ecosystem: string };
     ranges?: { type: string; events: { introduced?: string; fixed?: string }[] }[];
+    // Go advisories name the exact vulnerable functions.
+    ecosystem_specific?: { imports?: { path: string; symbols?: string[] }[] };
   }[];
 }
 
@@ -146,6 +148,7 @@ export function dedupeVulns(vulns: Vulnerability[]): Vulnerability[] {
       details: group.map((v) => v.details).sort((a, b) => b.length - a.length)[0],
       fixedVersions: [...new Set(group.flatMap((v) => v.fixedVersions))],
       fixCommits: [...new Set(group.flatMap((v) => v.fixCommits))],
+      affectedSymbols: [...new Set(group.flatMap((v) => v.affectedSymbols ?? []))],
     };
   });
 }
@@ -159,11 +162,14 @@ function minimalFixAbove(eco: Ecosystem, fixed: string[], version: string): stri
 function toVulnerability(v: OsvVuln, packageName: string, ecosystem: Ecosystem): Vulnerability {
   const wanted = normalizeName(ecosystem, packageName);
   const fixedVersions = new Set<string>();
+  const symbols = new Set<string>();
   for (const a of v.affected ?? []) {
     if (a.package?.ecosystem !== ecosystem || normalizeName(ecosystem, a.package.name) !== wanted) continue;
     for (const r of a.ranges ?? []) {
-      for (const e of r.events) if (e.fixed) fixedVersions.add(e.fixed);
+      // OSV writes Go versions without the `v` that go.mod and `go get` use.
+      for (const e of r.events) if (e.fixed) fixedVersions.add(ecosystem === "Go" && !e.fixed.startsWith("v") ? `v${e.fixed}` : e.fixed);
     }
+    for (const imp of a.ecosystem_specific?.imports ?? []) for (const sym of imp.symbols ?? []) symbols.add(sym);
   }
   return {
     id: v.id,
@@ -172,6 +178,7 @@ function toVulnerability(v: OsvVuln, packageName: string, ecosystem: Ecosystem):
     details: v.details ?? "",
     severity: v.database_specific?.severity,
     fixedVersions: [...fixedVersions],
+    affectedSymbols: [...symbols],
     fixCommits: [
       ...new Set((v.references ?? []).map((r) => r.url).filter((u) => FIX_URL.test(u) && !ADVISORY_DB.test(u))),
     ],

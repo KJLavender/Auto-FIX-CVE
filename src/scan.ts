@@ -1,5 +1,6 @@
 import { appliedBackports, mitigatedIds, readManifest, ruleActive } from "./backport/manifest.js";
 import { findUsages } from "./impact/analyze.js";
+import { findGoUsages } from "./impact/go.js";
 import { findPythonUsages } from "./impact/python.js";
 import { readLockfile, type LockRef } from "./lockfile/index.js";
 import { dedupeVulns, OsvClient } from "./osv/client.js";
@@ -45,11 +46,18 @@ export function mentionPattern(symbol: string): RegExp {
 }
 
 /** Flags usages whose API name appears in an advisory, e.g. `template` in "via `_.template`". */
-function markMentions(usages: Usage[], vulns: Vulnerability[]): void {
+export function markMentions(usages: Usage[], vulns: Vulnerability[]): void {
   for (const u of usages) {
     if (u.symbol.startsWith("(") || u.symbol === "*" || u.symbol === "default" || u.symbol.length < 3) continue;
     const pattern = mentionPattern(u.symbol);
-    u.mentionedBy = vulns.filter((v) => pattern.test(`${v.summary}\n${v.details}`)).map((v) => v.id);
+    u.mentionedBy = vulns
+      .filter((v) =>
+        // Prefer the advisory's own list of vulnerable functions (`Type.Method` matches a call to `Method`).
+        v.affectedSymbols?.length
+          ? v.affectedSymbols.some((s) => s === u.symbol || s.split(".").pop() === u.symbol)
+          : pattern.test(`${v.summary}\n${v.details}`),
+      )
+      .map((v) => v.id);
   }
 }
 
@@ -111,7 +119,8 @@ export async function scan(projectDir: string, options: ScanOptions): Promise<Fi
   // axios is how an app reaches a vulnerable follow-redirects underneath it.
   const introducers = vulnerable.flatMap((v) => (v.dep.direct ? [] : v.dep.introducedBy));
   const wanted = [...new Set([...vulnerable.map((v) => v.dep.name), ...introducers])];
-  const usages = lock.deps[0]?.ecosystem === "PyPI" ? await findPythonUsages(projectDir, wanted) : await findUsages(projectDir, wanted);
+  const finders = { npm: findUsages, PyPI: findPythonUsages, Go: findGoUsages };
+  const usages = await finders[lock.deps[0]?.ecosystem ?? "npm"](projectDir, wanted);
 
   const rules = (manifest.ignore ?? []).filter((r) => ruleActive(r));
   const resolved = await mapLimit(vulnerable, CONCURRENCY, async ({ dep, ids }): Promise<Finding | undefined> => {

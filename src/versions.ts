@@ -1,6 +1,16 @@
 import semver from "semver";
 
-export type Ecosystem = "npm" | "PyPI";
+export type Ecosystem = "npm" | "PyPI" | "Go";
+
+/** Go module versions are semver with a `v` prefix and sometimes `+incompatible`. */
+function goSemver(v: string): string {
+  return v.replace(/^v/, "").replace(/\+incompatible$/, "");
+}
+
+/** Versions in a form `semver` understands, for the ecosystems that use semver. */
+function sv(eco: Ecosystem, v: string): string {
+  return eco === "Go" ? goSemver(v) : v;
+}
 
 interface Pep440 {
   epoch: number;
@@ -60,11 +70,11 @@ export function comparePep440(a: string, b: string): number {
 }
 
 export function isValidVersion(eco: Ecosystem, v: string): boolean {
-  return eco === "npm" ? semver.valid(v) !== null : parsePep440(v) !== undefined;
+  return eco === "PyPI" ? parsePep440(v) !== undefined : semver.valid(sv(eco, v)) !== null;
 }
 
 export function compareVersions(eco: Ecosystem, a: string, b: string): number {
-  return eco === "npm" ? semver.compare(a, b) : comparePep440(a, b);
+  return eco === "PyPI" ? comparePep440(a, b) : semver.compare(sv(eco, a), sv(eco, b));
 }
 
 /**
@@ -73,9 +83,9 @@ export function compareVersions(eco: Ecosystem, a: string, b: string): number {
  * changed minor below 1.0) is treated as breaking, which matches common practice.
  */
 export function isBreakingUpgrade(eco: Ecosystem, from: string, to: string): boolean {
-  if (eco === "npm") {
-    const a = semver.parse(from);
-    const b = semver.parse(to);
+  if (eco !== "PyPI") {
+    const a = semver.parse(sv(eco, from));
+    const b = semver.parse(sv(eco, to));
     if (!a || !b) return true;
     if (a.major !== b.major) return true;
     if (a.major === 0 && a.minor !== b.minor) return true;

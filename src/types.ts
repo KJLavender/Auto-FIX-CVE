@@ -24,6 +24,8 @@ export interface Vulnerability {
   fixedVersions: string[];
   /** Upstream commit / pull request URLs that contain the fix. */
   fixCommits: string[];
+  /** Vulnerable functions named by the advisory (Go advisories list them), e.g. `Default` or `Context.File`. */
+  affectedSymbols?: string[];
 }
 
 export interface Usage {

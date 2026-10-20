@@ -3,12 +3,13 @@ import { readdir } from "node:fs/promises";
 import path from "node:path";
 import type { Dependency } from "../types.js";
 import { normalizeName } from "../versions.js";
+import { readGoMod } from "./go.js";
 import { readNpmLockfile } from "./npm.js";
 import { readPnpmLockfile } from "./pnpm.js";
 import { readPipfileLock, readPoetryLockfile, readRequirements, readUvLockfile } from "./python.js";
 import { readYarnLockfile } from "./yarn.js";
 
-export type LockKind = "npm" | "pnpm" | "yarn" | "uv" | "poetry" | "pipenv" | "requirements";
+export type LockKind = "npm" | "pnpm" | "yarn" | "uv" | "poetry" | "pipenv" | "requirements" | "go";
 
 export interface Lockfile {
   kind: LockKind;
@@ -26,7 +27,11 @@ const DETECT: { file: string; kind: LockKind }[] = [
   { file: "poetry.lock", kind: "poetry" },
   { file: "Pipfile.lock", kind: "pipenv" },
   { file: "requirements.txt", kind: "requirements" },
+  { file: "go.mod", kind: "go" },
 ];
+
+const JS_KINDS: LockKind[] = ["npm", "pnpm", "yarn"];
+const PY_KINDS: LockKind[] = ["uv", "poetry", "pipenv", "requirements"];
 
 export interface LockRef {
   file: string;
@@ -40,9 +45,10 @@ export interface LockRef {
  */
 export function detectLockfiles(projectDir: string): LockRef[] {
   const found = DETECT.filter((d) => existsSync(path.join(projectDir, d.file)));
-  const js = found.find((d) => ["npm", "pnpm", "yarn"].includes(d.kind));
-  const py = found.find((d) => !["npm", "pnpm", "yarn"].includes(d.kind));
-  return [js, py].filter((d): d is LockRef => d !== undefined);
+  const js = found.find((d) => JS_KINDS.includes(d.kind));
+  const py = found.find((d) => PY_KINDS.includes(d.kind));
+  const go = found.find((d) => d.kind === "go");
+  return [js, py, go].filter((d): d is LockRef => d !== undefined);
 }
 
 export function detectLockfile(projectDir: string): LockRef {
@@ -79,6 +85,7 @@ export async function readLockfile(projectDir: string, ref: LockRef = detectLock
     poetry: () => readPoetryLockfile(projectDir),
     pipenv: () => readPipfileLock(projectDir),
     requirements: () => readRequirements(projectDir, file),
+    go: () => readGoMod(projectDir),
   };
   return { kind, file, deps: await readers[kind]() };
 }
@@ -99,6 +106,12 @@ export function lockfileLine(kind: LockKind, lines: string[], name: string, vers
         return normalizeName("PyPI", t.match(/^name = "([^"]+)"$/)?.[1] ?? "") === name;
       case "pipenv":
         return normalizeName("PyPI", t.match(/^"([^"]+)": \{/)?.[1] ?? "") === name;
+      case "go": {
+        // `module vX` inside a require block, or `require module vX` on one line.
+        const words = t.split(/\s+/);
+        const [mod, ver] = words[0] === "require" ? words.slice(1) : words;
+        return mod === name && ver?.startsWith("v") === true;
+      }
       case "requirements":
         return normalizeName("PyPI", t.match(/^([A-Za-z0-9][A-Za-z0-9._-]*)/)?.[1] ?? "") === name && t.includes(version);
     }
