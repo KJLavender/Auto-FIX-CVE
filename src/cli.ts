@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
 import { Command, Option } from "commander";
@@ -22,7 +23,8 @@ import { triageFindings } from "./triage.js";
 import { fails, scan, type FailOn, type IgnoredVuln } from "./scan.js";
 import type { Finding } from "./types.js";
 
-const VERSION = "0.1.0";
+// dist/cli.js sits one level below package.json, so this works from a clone and from npx.
+const VERSION = (createRequire(import.meta.url)("../package.json") as { version: string }).version;
 
 
 async function confirm(question: string): Promise<boolean> {
