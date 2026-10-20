@@ -75,3 +75,34 @@ jobs:
             if (!names.includes("axios")) { console.error("axios should not have been touched:", names); process.exit(1); }
             console.log("remaining:", names);
           '
+
+  e2e-go:
+    # Real fix run on a Go module: semver-compatible upgrades, verified with go build and go test.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+      - run: npm ci && npm run build
+      - name: Fix the Go fixture
+        run: |
+          D="$RUNNER_TEMP/goapp"
+          cp -r test/fixtures/go-app "$D"
+          cd "$D"
+          go mod tidy
+          git init -q && git add -A && git -c user.name=ci -c user.email=ci@localhost commit -qm base
+          node "$GITHUB_WORKSPACE/dist/cli.js" fix . --only gopkg.in/yaml.v2 github.com/gin-gonic/gin --yes
+          go build ./...
+      - name: Rescan shows yaml.v2 and gin fixed
+        run: |
+          node dist/cli.js scan "$RUNNER_TEMP/goapp" --json > scan.json || true
+          node -e '
+            const names = JSON.parse(require("fs").readFileSync("scan.json", "utf8")).map(f => f.dependency.name);
+            const left = names.filter(n => n === "gopkg.in/yaml.v2" || n === "github.com/gin-gonic/gin");
+            if (left.length) { console.error("still vulnerable:", left); process.exit(1); }
+            console.log("remaining:", names);
+          '

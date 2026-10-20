@@ -1,6 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { listSourceFiles } from "../impact/analyze.js";
+import { listGoFiles } from "../impact/go.js";
 import { readLockfile, type LockKind } from "../lockfile/index.js";
 import type { Dependency } from "../types.js";
 import { changelogExcerpt, exportShape } from "./context.js";
@@ -125,13 +126,72 @@ class YarnManager extends JsManager {
   }
 }
 
+/**
+ * Go modules: go.mod lists every module in the build, so both direct and
+ * indirect requirements are raised in place and `go mod tidy` settles go.sum.
+ * Minimal version selection keeps the raised version.
+ */
+class GoManager implements PackageManager {
+  language = "Go";
+  canOverride = true;
+  manifestFiles = ["go.mod", "go.sum"];
+  private readonly go = process.env.AUTOFIX_GO ?? "go";
+  constructor(private readonly dir: string) {}
+
+  private file() {
+    return path.join(this.dir, "go.mod");
+  }
+
+  async declares(dep: Dependency): Promise<boolean> {
+    return dep.direct;
+  }
+
+  async require(dep: Dependency, to: string): Promise<void> {
+    const text = await readFile(this.file(), "utf8");
+    const lines = text.split("\n");
+    let found = false;
+    const next = lines.map((line) => {
+      const words = line.trim().split(/\s+/);
+      const [mod, ver] = words[0] === "require" ? words.slice(1) : words;
+      if (mod !== dep.name || !ver?.startsWith("v")) return line;
+      found = true;
+      return line.replace(ver, to);
+    });
+    // Not required yet (pulled in only through go.sum): add an explicit requirement.
+    if (!found) next.push(`require ${dep.name} ${to}`);
+    await writeFile(this.file(), next.join("\n"), "utf8");
+  }
+
+  install(): Promise<CommandResult> {
+    return run(`${this.go} mod tidy`, this.dir);
+  }
+
+  async lockedVersions(name: string): Promise<string[]> {
+    return (await readLockfile(this.dir)).deps.filter((d) => d.name === name).map((d) => d.version);
+  }
+
+  async exportShape(name: string): Promise<string> {
+    const res = await run(`${this.go} doc -short ${name}`, this.dir);
+    return res.output.trim().split("\n").slice(0, 80).join("\n");
+  }
+
+  async changelog(): Promise<string | undefined> {
+    return undefined;
+  }
+
+  sourceFiles() {
+    return listGoFiles(this.dir);
+  }
+}
+
 /** Package managers `fix` can drive; others can be scanned but not fixed yet. */
-export const FIXABLE: LockKind[] = ["npm", "pnpm", "yarn", "uv", "poetry", "pipenv"];
+export const FIXABLE: LockKind[] = ["npm", "pnpm", "yarn", "uv", "poetry", "pipenv", "go"];
 
 export function managerFor(kind: LockKind, dir: string): PackageManager {
   if (kind === "npm") return new JsManager(dir);
   if (kind === "pnpm") return new PnpmManager(dir);
   if (kind === "yarn") return new YarnManager(dir);
+  if (kind === "go") return new GoManager(dir);
   if (kind === "uv") return new UvManager(dir);
   if (kind === "poetry") return new PoetryManager(dir);
   if (kind === "pipenv") return new PipenvManager(dir);

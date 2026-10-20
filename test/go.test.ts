@@ -1,6 +1,8 @@
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { managerFor } from "../src/fix/managers.js";
 import { defaultPackageName, findGoUsagesInSource } from "../src/impact/go.js";
 import { parseGoMod } from "../src/lockfile/go.js";
 import { lockfileLine } from "../src/lockfile/index.js";
@@ -74,5 +76,26 @@ describe("advisory symbols", () => {
     // The prose mentions Unmarshal, but the symbol list is authoritative and does not include it.
     markMentions(usages, [vuln("GO-1", ["Default", "Context.File"], "calling Unmarshal(...) is unaffected")]);
     expect(usages.map((u) => u.mentionedBy.length)).toEqual([1, 1, 0]);
+  });
+});
+
+describe("Go manager", () => {
+  it("raises direct and indirect requirements in place, and adds missing ones", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "autofix-go-"));
+    await writeFile(
+      path.join(dir, "go.mod"),
+      ["module x", "", "require (", "\tgithub.com/gin-gonic/gin v1.6.0", "\tgolang.org/x/net v0.0.1 // indirect", ")", ""].join("\n"),
+    );
+    const go = managerFor("go", dir);
+    const dep = (name: string, version: string, direct: boolean) => ({
+      ecosystem: "Go" as const, name, version, paths: [], direct, dev: false, introducedBy: [],
+    });
+    await go.require(dep("github.com/gin-gonic/gin", "v1.6.0", true), "v1.9.1", true, false);
+    await go.require(dep("golang.org/x/net", "v0.0.1", false), "v0.60.0", false, false);
+    await go.require(dep("golang.org/x/text", "v0.3.2", false), "v0.41.0", false, false);
+    const text = await readFile(path.join(dir, "go.mod"), "utf8");
+    expect(text).toContain("\tgithub.com/gin-gonic/gin v1.9.1\n");
+    expect(text).toContain("\tgolang.org/x/net v0.60.0 // indirect\n");
+    expect(text).toContain("require golang.org/x/text v0.41.0");
   });
 });

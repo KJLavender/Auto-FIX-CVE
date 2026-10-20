@@ -13,7 +13,11 @@ export async function detectChecks(projectDir: string, kind: LockKind): Promise<
   if (kind === "uv") return detectPythonChecks(projectDir, "uv run");
   if (kind === "poetry") return detectPythonChecks(projectDir, `${process.env.AUTOFIX_POETRY ?? "poetry"} run`);
   if (kind === "pipenv") return detectPythonChecks(projectDir, `${process.env.AUTOFIX_PIPENV ?? "pipenv"} run`, "Pipfile");
-  if (kind === "requirements" || kind === "go") return [];
+  if (kind === "requirements") return [];
+  if (kind === "go") {
+    const go = process.env.AUTOFIX_GO ?? "go";
+    return [`${go} build ./...`, `${go} test ./...`];
+  }
 
   // `yarn test` also works under Plug'n'Play, where plain node cannot resolve packages.
   const runner = kind === "pnpm" ? (process.env.AUTOFIX_PNPM ?? "pnpm") : kind === "yarn" ? (process.env.AUTOFIX_YARN ?? "yarn") : "npm";
