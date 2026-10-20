@@ -1,0 +1,11 @@
+[project]
+name = "python-breaking-app"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = ["werkzeug==2.2.3"]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

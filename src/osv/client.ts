@@ -113,6 +113,41 @@ export class OsvClient {
   }
 }
 
+/**
+ * OSV often returns one vulnerability under several ids (e.g. a GHSA and a
+ * PYSEC record for the same CVE, each listing the other as an alias). Merge
+ * records that share any id or alias, preferring the GHSA as the primary id.
+ */
+export function dedupeVulns(vulns: Vulnerability[]): Vulnerability[] {
+  const groups: Vulnerability[][] = [];
+  const groupOf = new Map<string, Vulnerability[]>();
+  for (const v of vulns) {
+    const keys = [v.id, ...v.aliases];
+    const hits = [...new Set(keys.map((k) => groupOf.get(k)).filter((g): g is Vulnerability[] => g !== undefined))];
+    const group = hits[0] ?? [];
+    if (!hits.length) groups.push(group);
+    for (const other of hits.slice(1)) {
+      group.push(...other);
+      groups.splice(groups.indexOf(other), 1);
+    }
+    group.push(v);
+    for (const member of group) for (const k of [member.id, ...member.aliases]) groupOf.set(k, group);
+  }
+  return groups.map((group) => {
+    const primary = group.find((v) => v.id.startsWith("GHSA-")) ?? group[0];
+    const ids = new Set(group.flatMap((v) => [v.id, ...v.aliases]));
+    ids.delete(primary.id);
+    return {
+      ...primary,
+      aliases: [...ids],
+      severity: primary.severity ?? group.find((v) => v.severity)?.severity,
+      details: group.map((v) => v.details).sort((a, b) => b.length - a.length)[0],
+      fixedVersions: [...new Set(group.flatMap((v) => v.fixedVersions))],
+      fixCommits: [...new Set(group.flatMap((v) => v.fixCommits))],
+    };
+  });
+}
+
 function minimalFixAbove(eco: Ecosystem, fixed: string[], version: string): string | undefined {
   return fixed
     .filter((f) => isValidVersion(eco, f) && compareVersions(eco, f, version) > 0)

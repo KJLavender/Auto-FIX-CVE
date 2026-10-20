@@ -1,0 +1,11 @@
+[project]
+name = "py-pyjwt"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = ["PyJWT==1.7.1"]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

@@ -4,7 +4,7 @@
 
 大多數依賴掃描工具只會告訴你「升到 vX 就好」。Auto-FIX-CVE 會把流程做完：找出 CVE，定位**你的**程式碼裡哪幾行用到有漏洞的 API，再用兩種方式之一修好它。可以升級就升級，並修好升級後壞掉的程式碼；不能升級，就把上游的修補 backport 到你目前的版本。每個修補都會經過驗證，驗證沒過就 rollback。
 
-> 狀態：開發初期。`scan` 支援 JavaScript（npm、pnpm、Yarn classic 與 Berry）與 Python（uv、Poetry、Pipenv、固定版本的 `requirements.txt`）；`fix` 支援 npm 專案（升級、backport、PR）與 uv 專案（升級加 LLM 修正、PR）。
+> 狀態：開發初期。`scan` 支援 JavaScript（npm、pnpm、Yarn classic 與 Berry）與 Python（uv、Poetry、Pipenv、固定版本的 `requirements.txt`）；`fix` 支援 npm 專案（升級、backport、PR）與 uv / Poetry 專案（升級加 LLM 修正、PR）。
 
 ## 運作方式
 
@@ -27,7 +27,7 @@
 
 ## 使用方式
 
-需要 Node.js ≥ 22.12 與 lockfile：`package-lock.json` / `npm-shrinkwrap.json`（v2/v3）、`pnpm-lock.yaml`（v6–v9）或 `yarn.lock`（v1 或 Berry）。Python 則是 `uv.lock`、`poetry.lock`、`Pipfile.lock` 或固定版本的 `requirements.txt`（會利用 pip-compile / `uv export` 的 `# via` 註解重建依賴圖）。`fix` 需要 `package-lock.json` 或 `uv.lock`。`fix` 另外需要本機的 LLM CLI（見 [LLM backend](#llm-backend)）。
+需要 Node.js ≥ 22.12 與 lockfile：`package-lock.json` / `npm-shrinkwrap.json`（v2/v3）、`pnpm-lock.yaml`（v6–v9）或 `yarn.lock`（v1 或 Berry）。Python 則是 `uv.lock`、`poetry.lock`、`Pipfile.lock` 或固定版本的 `requirements.txt`（會利用 pip-compile / `uv export` 的 `# via` 註解重建依賴圖）。`fix` 需要 `package-lock.json`、`uv.lock` 或 `poetry.lock`。`fix` 另外需要本機的 LLM CLI（見 [LLM backend](#llm-backend)）。
 
 ```bash
 npm install
@@ -135,7 +135,7 @@ Apply 2 change(s)? [y/N]
 3. 驗證失敗時，把錯誤輸出、使用位置、套件升級**前後**的 runtime exports、changelog 和相關檔案交給 LLM，LLM 回傳精確的 search/replace 修改。
 4. 最多重試 `--max-attempts` 次（預設 3），仍失敗就 rollback。
 
-uv 專案走的是同一套流程：改寫 `pyproject.toml`（固定版本的維持固定，範圍則改成以修復版本為下限）、遞移依賴寫進 `[tool.uv] constraint-dependencies`、執行 `uv lock` 與 `uv sync`，若專案有用 pytest 就以 `uv run pytest` 驗證。Python 範例（`test/fixtures/python-breaking-app`）：Werkzeug 2.2.3 → 3.1.9 修掉 16 個 CVE，模型把被移除的 `werkzeug.urls.url_quote` 換成 `urllib.parse.quote`。
+uv 專案走的是同一套流程：改寫 `pyproject.toml`（固定版本的維持固定，範圍則改成以修復版本為下限）、遞移依賴寫進 `[tool.uv] constraint-dependencies`、執行 `uv lock` 與 `uv sync`，若專案有用 pytest 就以 `uv run pytest` 驗證。Poetry 專案也是同一套流程，另外會依專案原本的寫法（`^`、`~`、固定版本）改寫 Poetry 自己的 `[tool.poetry.*dependencies]` table；Poetry 沒有 override 機制，所以 Poetry 底下的遞移 Python 套件只會回報、不會修改。Python 範例（`test/fixtures/python-breaking-app`）：Werkzeug 2.2.3 → 3.1.9 修掉 16 個 CVE，模型把被移除的 `werkzeug.urls.url_quote` 換成 `urllib.parse.quote`。
 
 範例（`test/fixtures/breaking-app`，marked 4 移除了可直接呼叫的 module export）：
 
@@ -229,6 +229,22 @@ jobs:
 node dist/cli.js scan . --sarif results.sarif --fail-on likely
 ```
 
+## Benchmark
+
+七個真實的安全升級案例，都是升級後會（或可能會）讓程式碼壞掉的情況，每個案例都是附有測試的小專案（`bench/cases`）。`npm run bench` 會把每個案例複製到暫存目錄、執行 `fix --yes`，並量測結果：
+
+| Case | Upgrade | Vulns before → after | Result | Model rounds | Source lines changed | Cost | Time |
+|---|---|---|---|---|---|---|---|
+| js-jsonwebtoken | jsonwebtoken 8.5.1 → 9.0.0 | 3 → 0 | fixed | 0 | none | $0.000 | 6s |
+| js-marked | marked 2.1.3 → 4.3.0 | 2 → 0 | fixed | 1 | +1 −1 | $0.015 | 11s |
+| js-xml2js | xml2js 0.4.23 → 0.5.0 | 1 → 0 | fixed | 0 | none | $0.000 | 4s |
+| py-poetry-pyjwt | pyjwt 1.7.1 → 2.15.1, pytest 8.4.2 → 9.1.1 | 12 → 0 | fixed, fixed | 1 | +2 −2 | $0.025 | 36s |
+| py-pyjwt | pyjwt 1.7.1 → 2.15.0 | 11 → 0 | fixed | 1 | +2 −2 | $0.024 | 13s |
+| py-urllib3 | urllib3 1.26.5 → 2.8.0 | 10 → 0 | fixed | 1 | +1 −1 | $0.018 | 13s |
+| py-werkzeug | werkzeug 2.2.3 → 3.1.9 | 8 → 0 | fixed | 1 | +2 −2 | $0.017 | 13s |
+
+47 個已知漏洞全部修掉，每個專案的測試也都還是通過。其中五個升級弄壞了程式碼，模型各用一輪修好，每個只改一到兩行：marked 移除了可直接呼叫的 export、PyJWT 2 要求指定 `algorithms` 且 token 改為 `str`、urllib3 2 把 `method_whitelist` 改名為 `allowed_methods`、Werkzeug 3 移除了 `url_quote`。模型總成本約 $0.10。結果記錄在 `bench/RESULTS.md`。模型輸出每次執行可能略有不同。
+
 ## 安全模型
 
 Advisory 內文和上游 diff 對 LLM 來說都是不可信的輸入，所以會限制它的輸出：
@@ -246,6 +262,7 @@ LLM 透過本機 CLI 以 headless 模式呼叫（`-p --output-format json --json
 | `AUTOFIX_MODEL` | Sonnet 5.5 | 模型 id |
 | `AUTOFIX_EFFORT` | `medium` | 推理強度 |
 | `AUTOFIX_LLM_BIN` | `PATH` 上的 CLI | CLI 執行檔路徑 |
+| `AUTOFIX_POETRY` | `poetry` | Poetry 指令，例如 `uvx poetry` |
 
 上面範例的實際成本：每次升級修正約 $0.02–0.03，每次 backport 約 $0.07（兩個 PoC 加上移植）。
 
@@ -271,8 +288,8 @@ npm run dev -- scan test/fixtures/vuln-app
 - [x] 掃描 pnpm 與 Yarn lockfile
 - [ ] 修復 pnpm 與 Yarn 專案
 - [x] 掃描 Python 專案：uv、Poetry、Pipenv、requirements.txt；支援 PEP 440 版本規則；import 分析會把套件名對應到模組名（`PyYAML` → `yaml`），優先讀 virtualenv 裡的 `top_level.txt`
-- [x] 修復 uv 專案（升級加 LLM 修正）
-- [ ] 修復 Poetry / Pipenv 專案、Python backport
+- [x] 修復 uv 與 Poetry 專案（升級加 LLM 修正）
+- [ ] 修復 Pipenv 專案、Python backport
 
 ## 授權
 

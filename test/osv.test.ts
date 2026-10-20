@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { OsvClient } from "../src/osv/client.js";
+import { dedupeVulns, OsvClient } from "../src/osv/client.js";
 import type { Vulnerability } from "../src/types.js";
 
 const vuln = (id: string, fixedVersions: string[]): Vulnerability => ({
@@ -63,5 +63,24 @@ describe("findSafeVersion", () => {
     fakeOsv({ "4.17.21": [] });
     const osv = new OsvClient();
     expect((await osv.findSafeVersion("pkg", "4.17.20", [vuln("A", ["3.10.2", "4.17.21", "5.0.1"])])).version).toBe("4.17.21");
+  });
+});
+
+describe("dedupeVulns", () => {
+  it("merges records of one vulnerability published under several ids", () => {
+    const ghsa = { ...vuln("GHSA-ffqj", ["2.4.0"]), aliases: ["CVE-2022-29217", "PYSEC-2022-202"], severity: "HIGH" };
+    const pysec = { ...vuln("PYSEC-2022-202", ["2.4.0"]), aliases: ["CVE-2022-29217", "GHSA-ffqj"], fixCommits: ["https://github.com/x/y/commit/abc1234"] };
+    const other = { ...vuln("PYSEC-2025-183", []), aliases: ["CVE-2025-45768"] };
+    const merged = dedupeVulns([pysec, other, ghsa]);
+    expect(merged.map((v) => v.id)).toEqual(["GHSA-ffqj", "PYSEC-2025-183"]);
+    expect(merged[0]).toMatchObject({ severity: "HIGH", fixCommits: ["https://github.com/x/y/commit/abc1234"] });
+    expect(merged[0].aliases.sort()).toEqual(["CVE-2022-29217", "PYSEC-2022-202"]);
+  });
+
+  it("joins groups that only connect through a later record", () => {
+    const a = { ...vuln("A", []), aliases: ["CVE-1"] };
+    const b = { ...vuln("B", []), aliases: ["CVE-2"] };
+    const bridge = { ...vuln("GHSA-c", []), aliases: ["CVE-1", "CVE-2"] };
+    expect(dedupeVulns([a, b, bridge]).map((v) => v.id)).toEqual(["GHSA-c"]);
   });
 });

@@ -2,7 +2,7 @@ import { appliedBackports, mitigatedIds, readManifest } from "./backport/manifes
 import { findUsages } from "./impact/analyze.js";
 import { findPythonUsages } from "./impact/python.js";
 import { readLockfile, type LockRef } from "./lockfile/index.js";
-import { OsvClient } from "./osv/client.js";
+import { dedupeVulns, OsvClient } from "./osv/client.js";
 import type { Finding, Reachability, Usage, Vulnerability } from "./types.js";
 import { isBreakingUpgrade } from "./versions.js";
 
@@ -104,8 +104,12 @@ export async function scan(projectDir: string, options: ScanOptions): Promise<Fi
   const usages = lock.deps[0]?.ecosystem === "PyPI" ? await findPythonUsages(projectDir, wanted) : await findUsages(projectDir, wanted);
 
   const findings = await mapLimit(vulnerable, CONCURRENCY, async ({ dep, ids }): Promise<Finding> => {
-    const vulns = await osv.getVulns(ids, dep.name, dep.ecosystem);
-    const { version: safeVersion, unfixable } = await osv.findSafeVersion(dep.name, dep.version, vulns, dep.ecosystem);
+    const vulns = dedupeVulns(await osv.getVulns(ids, dep.name, dep.ecosystem));
+    const safe = await osv.findSafeVersion(dep.name, dep.version, vulns, dep.ecosystem);
+    const safeVersion = safe.version;
+    // The search may name a duplicate record; report each unfixable vulnerability once, by its primary id.
+    const unfixableIds = new Set(safe.unfixable);
+    const unfixable = vulns.filter((v) => [v.id, ...v.aliases].some((k) => unfixableIds.has(k))).map((v) => v.id);
     const depUsages = (usages.get(dep.name) ?? []).map((u) => ({ ...u }));
     markMentions(depUsages, vulns);
     const via = dep.direct

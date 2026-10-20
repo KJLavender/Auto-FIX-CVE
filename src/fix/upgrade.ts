@@ -146,6 +146,8 @@ export interface PlanPolicy {
   backport: boolean;
   /** Backport instead of a breaking upgrade even when the upgrade is allowed. */
   preferBackport: boolean;
+  /** Whether the package manager can force a transitive version (npm overrides, uv constraints). */
+  canOverride?: boolean;
 }
 
 /** Decides what `fix` would do for a finding, without touching anything. */
@@ -167,6 +169,9 @@ export function planFinding(finding: Finding, policy: PlanPolicy): PlanStep {
     if (policy.checks.length === 0) {
       return backportOr("breaking upgrade with no build/test command to verify it (pass --check)", "no checks to verify an upgrade");
     }
+  }
+  if (!dep.direct && policy.canOverride === false) {
+    return backportOr(`transitive (via ${dep.introducedBy.join(", ")}) and this package manager cannot override it`, "transitive, no override");
   }
   return { finding, action: dep.direct ? "upgrade" : "override" };
 }

@@ -164,7 +164,13 @@ program
       }
 
       const checks = opts.check ?? (await detectChecks(projectDir));
-      const policy = { checks, allowBreaking: opts.breaking, backport: opts.backport, preferBackport: !!opts.preferBackport };
+      const policy = {
+        checks,
+        allowBreaking: opts.breaking,
+        backport: opts.backport,
+        preferBackport: !!opts.preferBackport,
+        canOverride: manager.canOverride,
+      };
       // One step per installed name@version: each copy of a package is fixed on its own.
       const plan = findings.map((f) => planFinding(f, policy));
 

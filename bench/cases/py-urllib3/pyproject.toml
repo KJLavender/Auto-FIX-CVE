@@ -1,0 +1,11 @@
+[project]
+name = "py-urllib3"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = ["urllib3==1.26.5"]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { managerFor, splitRequirement } from "../src/fix/managers.js";
+import { poetryConstraint } from "../src/fix/python-managers.js";
 import type { Dependency } from "../src/types.js";
 
 const dep = (name: string, version: string): Dependency => ({
@@ -66,6 +67,46 @@ describe("uv manager", () => {
   });
 
   it("refuses package managers it cannot drive", () => {
-    expect(() => managerFor("poetry", ".")).toThrow(/poetry/);
+    expect(() => managerFor("pipenv", ".")).toThrow(/pipenv/);
+  });
+});
+
+describe("poetry manager", () => {
+  it("keeps the project's constraint style", () => {
+    expect(poetryConstraint("^1.7.1", "2.4.0", false)).toBe("^2.4.0");
+    expect(poetryConstraint("~1.7", "1.7.4", false)).toBe("~1.7.4");
+    expect(poetryConstraint("1.7.1", "2.4.0", false)).toBe("2.4.0");
+    expect(poetryConstraint(">=1,<3", "2.4.0", false)).toBe(">=2.4.0");
+    expect(poetryConstraint("^1.7.1", "2.4.0", true)).toBe("2.4.0");
+  });
+
+  it("rewrites Poetry tables, inline tables and PEP 621 strings, but cannot override transitive packages", async () => {
+    const dir = await project(
+      [
+        "[project]",
+        'dependencies = ["requests==2.25.0"]',
+        "",
+        "[tool.poetry.dependencies]",
+        'python = "^3.11"',
+        'PyJWT = "^1.7.1"',
+        'Jinja2 = { version = "~2.11", extras = ["i18n"] }',
+        "",
+        "[tool.poetry.group.dev.dependencies]",
+        'pytest = "^6.2"',
+        "",
+      ].join("\n"),
+    );
+    const poetry = managerFor("poetry", dir);
+    expect(poetry.canOverride).toBe(false);
+    await poetry.require(dep("pyjwt", "1.7.1"), "2.4.0", true, false);
+    await poetry.require(dep("jinja2", "2.11.2"), "2.11.3", true, false);
+    await poetry.require(dep("pytest", "6.2.0"), "9.0.3", true, false);
+    await poetry.require(dep("requests", "2.25.0"), "2.33.0", true, false);
+    const text = await readFile(path.join(dir, "pyproject.toml"), "utf8");
+    expect(text).toContain('PyJWT = "^2.4.0"');
+    expect(text).toContain('Jinja2 = { version = "~2.11.3", extras = ["i18n"] }');
+    expect(text).toContain('pytest = "^9.0.3"');
+    expect(text).toContain('"requests==2.33.0"');
+    expect(text).toContain('python = "^3.11"');
   });
 });

@@ -9,7 +9,8 @@ const DEFAULT_TEST = /no test specified/;
 
 /** Picks verification commands from package.json scripts, cheapest first. */
 export async function detectChecks(projectDir: string): Promise<string[]> {
-  if (existsSync(path.join(projectDir, "uv.lock"))) return detectPythonChecks(projectDir);
+  if (existsSync(path.join(projectDir, "uv.lock"))) return detectPythonChecks(projectDir, "uv run");
+  if (existsSync(path.join(projectDir, "poetry.lock"))) return detectPythonChecks(projectDir, `${process.env.AUTOFIX_POETRY ?? "poetry"} run`);
   const pkg = JSON.parse(await readFile(path.join(projectDir, "package.json"), "utf8")) as {
     scripts?: Record<string, string>;
   };
@@ -25,13 +26,13 @@ export async function detectChecks(projectDir: string): Promise<string[]> {
 }
 
 /** pytest when the project uses it (mentioned in pyproject.toml, or a tests/ directory). */
-async function detectPythonChecks(projectDir: string): Promise<string[]> {
+async function detectPythonChecks(projectDir: string, runner: string): Promise<string[]> {
   const pyproject = existsSync(path.join(projectDir, "pyproject.toml"))
     ? await readFile(path.join(projectDir, "pyproject.toml"), "utf8")
     : "";
   const usesPytest =
     /\bpytest\b/.test(pyproject) || existsSync(path.join(projectDir, "tests")) || existsSync(path.join(projectDir, "test"));
-  return usesPytest ? ["uv run pytest -q"] : [];
+  return usesPytest ? [`${runner} pytest -q`] : [];
 }
 
 const SHAPE_SCRIPT = `
