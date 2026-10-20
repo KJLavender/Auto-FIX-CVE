@@ -4,7 +4,7 @@
 
 大多數依賴掃描工具只會告訴你「升到 vX 就好」。Auto-FIX-CVE 會把流程做完：找出 CVE，定位**你的**程式碼裡哪幾行用到有漏洞的 API，再用兩種方式之一修好它。可以升級就升級，並修好升級後壞掉的程式碼；不能升級，就把上游的修補 backport 到你目前的版本。每個修補都會經過驗證，驗證沒過就 rollback。
 
-> 狀態：開發初期。`scan` 支援 JavaScript（npm、pnpm、Yarn classic 與 Berry）與 Python（uv、Poetry、Pipenv、固定版本的 `requirements.txt`）；`fix`（升級、backport、PR）目前支援 npm 專案。
+> 狀態：開發初期。`scan` 支援 JavaScript（npm、pnpm、Yarn classic 與 Berry）與 Python（uv、Poetry、Pipenv、固定版本的 `requirements.txt`）；`fix` 支援 npm 專案（升級、backport、PR）與 uv 專案（升級加 LLM 修正、PR）。
 
 ## 運作方式
 
@@ -27,7 +27,7 @@
 
 ## 使用方式
 
-需要 Node.js ≥ 22.12 與 lockfile：`package-lock.json` / `npm-shrinkwrap.json`（v2/v3）、`pnpm-lock.yaml`（v6–v9）或 `yarn.lock`（v1 或 Berry）。Python 則是 `uv.lock`、`poetry.lock`、`Pipfile.lock` 或固定版本的 `requirements.txt`（會利用 pip-compile / `uv export` 的 `# via` 註解重建依賴圖）。`fix` 需要 `package-lock.json`。`fix` 另外需要本機的 LLM CLI（見 [LLM backend](#llm-backend)）。
+需要 Node.js ≥ 22.12 與 lockfile：`package-lock.json` / `npm-shrinkwrap.json`（v2/v3）、`pnpm-lock.yaml`（v6–v9）或 `yarn.lock`（v1 或 Berry）。Python 則是 `uv.lock`、`poetry.lock`、`Pipfile.lock` 或固定版本的 `requirements.txt`（會利用 pip-compile / `uv export` 的 `# via` 註解重建依賴圖）。`fix` 需要 `package-lock.json` 或 `uv.lock`。`fix` 另外需要本機的 LLM CLI（見 [LLM backend](#llm-backend)）。
 
 ```bash
 npm install
@@ -113,6 +113,8 @@ Apply 2 change(s)? [y/N]
 2. 升級。如果 caret 範圍實際裝到更新的版本，也會再查一次 OSV。
 3. 驗證失敗時，把錯誤輸出、使用位置、套件升級**前後**的 runtime exports、changelog 和相關檔案交給 LLM，LLM 回傳精確的 search/replace 修改。
 4. 最多重試 `--max-attempts` 次（預設 3），仍失敗就 rollback。
+
+uv 專案走的是同一套流程：改寫 `pyproject.toml`（固定版本的維持固定，範圍則改成以修復版本為下限）、遞移依賴寫進 `[tool.uv] constraint-dependencies`、執行 `uv lock` 與 `uv sync`，若專案有用 pytest 就以 `uv run pytest` 驗證。Python 範例（`test/fixtures/python-breaking-app`）：Werkzeug 2.2.3 → 3.1.9 修掉 16 個 CVE，模型把被移除的 `werkzeug.urls.url_quote` 換成 `urllib.parse.quote`。
 
 範例（`test/fixtures/breaking-app`，marked 4 移除了可直接呼叫的 module export）：
 
@@ -248,7 +250,8 @@ npm run dev -- scan test/fixtures/vuln-app
 - [x] 掃描 pnpm 與 Yarn lockfile
 - [ ] 修復 pnpm 與 Yarn 專案
 - [x] 掃描 Python 專案：uv、Poetry、Pipenv、requirements.txt；支援 PEP 440 版本規則；import 分析會把套件名對應到模組名（`PyYAML` → `yaml`），優先讀 virtualenv 裡的 `top_level.txt`
-- [ ] 修復 Python 專案
+- [x] 修復 uv 專案（升級加 LLM 修正）
+- [ ] 修復 Poetry / Pipenv 專案、Python backport
 
 ## 授權
 

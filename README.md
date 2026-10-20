@@ -4,7 +4,7 @@
 
 Most dependency scanners stop at "upgrade to vX". Auto-FIX-CVE closes the loop. It finds the CVE and locates the exact lines in **your** code that use the vulnerable API. Then it fixes the problem in one of two ways: upgrade and repair the code that breaks, or, when you can't upgrade, backport the upstream patch into the version you have. Every fix is verified, and anything that fails verification is rolled back.
 
-> Status: early development. `scan` supports JavaScript (npm, pnpm, Yarn classic and Berry) and Python (uv, Poetry, Pipenv, pinned `requirements.txt`). `fix` (upgrade, backport, PRs) supports npm projects.
+> Status: early development. `scan` supports JavaScript (npm, pnpm, Yarn classic and Berry) and Python (uv, Poetry, Pipenv, pinned `requirements.txt`). `fix` supports npm projects (upgrade, backport, PRs) and uv projects (upgrade with LLM repair, PRs).
 
 ## How it works
 
@@ -27,7 +27,7 @@ What sets it apart:
 
 ## Usage
 
-Requires Node.js ≥ 22.12 and a lockfile: `package-lock.json` / `npm-shrinkwrap.json` (v2/v3), `pnpm-lock.yaml` (v6–v9) or `yarn.lock` (v1 or Berry). For Python: `uv.lock`, `poetry.lock`, `Pipfile.lock` or a pinned `requirements.txt` (pip-compile / `uv export` `# via` comments are used to rebuild the dependency graph). `fix` needs `package-lock.json`. `fix` also needs a local LLM CLI (see [LLM backend](#llm-backend)).
+Requires Node.js ≥ 22.12 and a lockfile: `package-lock.json` / `npm-shrinkwrap.json` (v2/v3), `pnpm-lock.yaml` (v6–v9) or `yarn.lock` (v1 or Berry). For Python: `uv.lock`, `poetry.lock`, `Pipfile.lock` or a pinned `requirements.txt` (pip-compile / `uv export` `# via` comments are used to rebuild the dependency graph). `fix` needs `package-lock.json` or `uv.lock`. `fix` also needs a local LLM CLI (see [LLM backend](#llm-backend)).
 
 ```bash
 npm install
@@ -113,6 +113,8 @@ Safety rules:
 2. Upgrades. If the caret range resolves to a newer version, that version is checked against OSV too.
 3. If the checks fail, the LLM gets the failing output, the usage sites, the package's runtime exports **before and after** the upgrade, its changelog and the relevant files. It answers with exact search/replace edits.
 4. Repeats up to `--max-attempts` (default 3), otherwise rolls back.
+
+For uv projects the same loop edits `pyproject.toml` (a pinned requirement stays pinned, a range gets a floor), constrains transitive packages under `[tool.uv] constraint-dependencies`, runs `uv lock` + `uv sync`, and verifies with `uv run pytest` when the project uses pytest. Python example (`test/fixtures/python-breaking-app`): Werkzeug 2.2.3 → 3.1.9 fixes 16 CVEs, and the model replaces the removed `werkzeug.urls.url_quote` with `urllib.parse.quote`.
 
 Example (from `test/fixtures/breaking-app`, where marked 4 removed the callable module export):
 
@@ -248,7 +250,8 @@ The fixtures under `test/fixtures/` are intentionally vulnerable. Copy them to a
 - [x] Scan pnpm and Yarn lockfiles
 - [ ] Fix pnpm and Yarn projects
 - [x] Scan Python projects: uv, Poetry, Pipenv, requirements.txt; PEP 440 versions; import analysis that maps distributions to modules (`PyYAML` → `yaml`) via the virtualenv's `top_level.txt`
-- [ ] Fix Python projects
+- [x] Fix uv projects (upgrade + LLM repair)
+- [ ] Fix Poetry / Pipenv projects, Python backports
 
 ## License
 

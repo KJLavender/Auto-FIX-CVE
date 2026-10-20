@@ -1,15 +1,15 @@
 import { existsSync } from "node:fs";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { canBackport } from "../backport/backport.js";
-import { readNpmLockfile } from "../lockfile/npm.js";
 import type { LlmBackend } from "../llm/backend.js";
 import type { OsvClient } from "../osv/client.js";
 import type { Finding } from "../types.js";
 import { compareVersions } from "../versions.js";
-import { changelogExcerpt, exportShape, relevantFiles } from "./context.js";
-import { applyEdits, changedSince, restoreFiles, type Edit } from "./edits.js";
+import { relevantFiles } from "./context.js";
+import { applyEdits, changedSince, restoreFiles, snapshot, type Edit } from "./edits.js";
 import { run, tail } from "./exec.js";
+import type { PackageManager } from "./managers.js";
 
 export type FixStatus = "fixed" | "skipped" | "failed";
 
@@ -37,6 +37,7 @@ export function describeVuln(v: { id: string; aliases: string[] }): string {
 }
 
 export interface FixOptions extends PlanPolicy {
+  manager: PackageManager;
   maxAttempts: number;
   backend: LlmBackend;
   osv: OsvClient;
@@ -49,15 +50,15 @@ interface CheckResult {
   output: string;
 }
 
-const DEP_FIELDS = ["dependencies", "devDependencies", "optionalDependencies"] as const;
-
-const SYSTEM_PROMPT = `You are a senior engineer repairing a JavaScript/TypeScript project after a security-driven dependency upgrade.
+function systemPrompt(pm: PackageManager): string {
+  return `You are a senior engineer repairing a ${pm.language} project after a security-driven dependency upgrade.
 Rules:
 - Make the smallest source change that makes the failing command pass with the NEW version. Keep behaviour identical.
-- Never downgrade or pin the dependency. Never edit package.json, lockfiles or node_modules.
+- Never downgrade or pin the dependency. Never edit ${pm.manifestFiles.join(", ")}, other lockfiles or installed packages.
 - Do not delete, skip or weaken tests or assertions. Only change a test if it calls the upgraded library's API directly.
 - Edits are exact search/replace operations: "search" must be copied verbatim from a file shown to you and occur exactly once in it, so include enough surrounding text. Use an empty "search" only to create a new file.
 - If the failure is unrelated to the upgrade or cannot be fixed safely, return no edits and explain why.`;
+}
 
 const EDIT_SCHEMA = {
   type: "object",
@@ -92,10 +93,6 @@ export async function verifyBaseline(projectDir: string, checks: string[]): Prom
   if (!res.ok) {
     throw new Error(`\`${res.command}\` already fails before any change; fix it first.\n${tail(res.output, 3000)}`);
   }
-}
-
-function detectIndent(json: string): string | number {
-  return json.match(/^[ \t]+(?=")/m)?.[0] ?? 2;
 }
 
 export async function readInstalledVersion(projectDir: string, name: string): Promise<string | undefined> {
@@ -174,6 +171,7 @@ export function planFinding(finding: Finding, policy: PlanPolicy): PlanStep {
 
 export async function fixFinding(projectDir: string, finding: Finding, opts: FixOptions): Promise<FixResult> {
   const dep = finding.dependency;
+  const pm = opts.manager;
   const result: FixResult = {
     package: dep.name,
     from: dep.version,
@@ -191,65 +189,47 @@ export async function fixFinding(projectDir: string, finding: Finding, opts: Fix
   if (step.action === "skip" || step.action === "backport") return { ...result, reason: step.reason };
   const to = finding.safeVersion!;
 
-  const pkgPath = path.join(projectDir, "package.json");
-  const lockPath = path.join(projectDir, "package-lock.json");
   const originals = new Map<string, string | null>();
-  originals.set(pkgPath, await readFile(pkgPath, "utf8"));
-  originals.set(lockPath, existsSync(lockPath) ? await readFile(lockPath, "utf8") : null);
-
-  const pkgText = originals.get(pkgPath)!;
-  const pkg = JSON.parse(pkgText) as Record<string, unknown> & { overrides?: Record<string, string> };
-  const field = DEP_FIELDS.find((f) => (pkg[f] as Record<string, string> | undefined)?.[dep.name] !== undefined);
-
-  const direct = step.action === "upgrade" && field !== undefined;
-  const writePkg = async (spec: string) => {
-    if (direct) {
-      (pkg[field] as Record<string, string>)[dep.name] = spec;
-    } else {
-      // Key the override on the exact vulnerable version, so other copies of the
-      // package (e.g. an unrelated older major) are left alone.
-      pkg.overrides = { ...pkg.overrides, [`${dep.name}@${dep.version}`]: spec };
-    }
-    await writeFile(pkgPath, JSON.stringify(pkg, null, detectIndent(pkgText)) + "\n", "utf8");
-  };
+  for (const f of pm.manifestFiles) await snapshot(originals, path.join(projectDir, f));
 
   const rollback = async (reason: string): Promise<FixResult> => {
     opts.log(`  rolling back ${dep.name}: ${reason}`);
     await restoreFiles(originals);
-    await run("npm install", projectDir);
+    await pm.install();
     return { ...result, status: "failed", reason, changedFiles: [] };
   };
 
+  const direct = step.action === "upgrade" && (await pm.declares(dep));
   result.strategy = direct ? "upgrade" : "override";
-  const before = direct ? await exportShape(projectDir, dep.name) : "";
-  const oldSpec = field ? (pkg[field] as Record<string, string>)[dep.name] : undefined;
-  const prefix = oldSpec?.match(/^[\^~]/)?.[0] ?? "";
+  const before = direct ? await pm.exportShape(dep.name) : "";
 
   opts.log(`  ${result.strategy} ${dep.name} ${dep.version} → ${to}`);
-  await writePkg(prefix + to);
-  let install = await run("npm install", projectDir);
-  if (!install.ok) return rollback(`npm install failed:\n${tail(install.output, 2000)}`);
+  await pm.require(dep, to, direct, false);
+  let install = await pm.install();
+  if (!install.ok) return rollback(`install failed:\n${tail(install.output, 2000)}`);
 
-  // A caret range may resolve above the verified version; make sure that one is clean too.
-  const installed = direct ? await readInstalledVersion(projectDir, dep.name) : to;
-  if (installed && installed !== to) {
-    const [ids] = await opts.osv.queryBatch([{ name: dep.name, version: installed }]);
+  // A range may resolve above the verified version; make sure what got locked is clean too.
+  const locked = (await pm.lockedVersions(dep.name)).filter((v) => compareVersions(dep.ecosystem, v, dep.version) > 0);
+  for (const v of locked.filter((v) => v !== to)) {
+    const [ids] = await opts.osv.queryBatch([{ name: dep.name, version: v, ecosystem: dep.ecosystem }]);
     if (ids.length) {
-      opts.log(`  ${dep.name}@${installed} is vulnerable (${ids.join(", ")}); pinning ${to}`);
-      await writePkg(to);
-      install = await run("npm install", projectDir);
-      if (!install.ok) return rollback(`npm install failed:\n${tail(install.output, 2000)}`);
+      opts.log(`  ${dep.name}@${v} is vulnerable (${ids.join(", ")}); pinning ${to}`);
+      await pm.require(dep, to, direct, true);
+      install = await pm.install();
+      if (!install.ok) return rollback(`install failed:\n${tail(install.output, 2000)}`);
+      break;
     }
   }
-  const actual = (direct ? await readInstalledVersion(projectDir, dep.name) : to) ?? to;
-  result.to = actual;
 
   // The lockfile must no longer resolve the vulnerable version anywhere.
-  const stillThere = (await readNpmLockfile(projectDir)).some((d) => d.name === dep.name && d.version === dep.version);
-  if (stillThere) return rollback(`${dep.name}@${dep.version} is still installed after the change`);
+  const versions = await pm.lockedVersions(dep.name);
+  if (versions.includes(dep.version)) return rollback(`${dep.name}@${dep.version} is still locked after the change`);
+  const actual = versions.find((v) => compareVersions(dep.ecosystem, v, dep.version) > 0) ?? to;
+  result.to = actual;
 
-  const shapes = { before, after: direct ? await exportShape(projectDir, dep.name) : "" };
-  const changelog = direct ? await changelogExcerpt(projectDir, dep.name, dep.version) : undefined;
+  const shapes = { before, after: direct ? await pm.exportShape(dep.name) : "" };
+  const changelog = direct ? await pm.changelog(dep.name, dep.version) : undefined;
+  const sources = await pm.sourceFiles();
   const history: string[] = [];
 
   let check = await runChecks(projectDir, opts.checks);
@@ -261,12 +241,12 @@ export async function fixFinding(projectDir: string, finding: Finding, opts: Fix
     opts.log(`  \`${check.command}\` fails; asking the model for a fix (attempt ${result.attempts}/${opts.maxAttempts})`);
 
     const files = new Map<string, string>();
-    for (const f of await relevantFiles(projectDir, finding.usages, check.output)) {
+    for (const f of await relevantFiles(projectDir, finding.usages, check.output, sources)) {
       files.set(f, await readFile(path.join(projectDir, f), "utf8"));
     }
     const prompt = buildPrompt(finding, actual, check, shapes, changelog, history, files);
     const { output, costUsd } = await opts.backend.complete<{ explanation: string; edits: Edit[] }>({
-      system: SYSTEM_PROMPT,
+      system: systemPrompt(pm),
       prompt,
       schema: EDIT_SCHEMA,
     });

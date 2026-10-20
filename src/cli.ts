@@ -9,6 +9,7 @@ import { appliedBackports, MANIFEST, readManifest } from "./backport/manifest.js
 import { runPoc } from "./backport/poc.js";
 import { detectChecks } from "./fix/context.js";
 import { run } from "./fix/exec.js";
+import { FIXABLE, managerFor } from "./fix/managers.js";
 import { fixFinding, planFinding, readInstalledVersion, verifyBaseline, type FixResult } from "./fix/upgrade.js";
 import { CliBackend, DEFAULT_MODEL } from "./llm/backend.js";
 import { detectLockfile } from "./lockfile/index.js";
@@ -122,9 +123,10 @@ program
       const log = (m: string) => console.error(pc.dim(m));
 
       const lock = detectLockfile(projectDir);
-      if (lock.kind !== "npm") {
-        throw new Error(`fix supports npm projects (package-lock.json) for now; ${lock.file} can be scanned but not fixed yet.`);
+      if (!FIXABLE.includes(lock.kind)) {
+        throw new Error(`fix supports npm (package-lock.json) and uv (uv.lock) projects for now; ${lock.file} can be scanned but not fixed yet.`);
       }
+      const manager = managerFor(lock.kind, projectDir);
 
       const status = await run("git status --porcelain", projectDir);
       if (status.ok && status.output.trim() && !opts.allowDirty) {
@@ -162,6 +164,7 @@ program
 
       const fixOpts = {
         ...policy,
+        manager,
         maxAttempts: opts.maxAttempts,
         backend: new CliBackend(),
         osv: new OsvClient(),

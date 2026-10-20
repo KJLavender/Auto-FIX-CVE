@@ -9,6 +9,7 @@ const DEFAULT_TEST = /no test specified/;
 
 /** Picks verification commands from package.json scripts, cheapest first. */
 export async function detectChecks(projectDir: string): Promise<string[]> {
+  if (existsSync(path.join(projectDir, "uv.lock"))) return detectPythonChecks(projectDir);
   const pkg = JSON.parse(await readFile(path.join(projectDir, "package.json"), "utf8")) as {
     scripts?: Record<string, string>;
   };
@@ -21,6 +22,16 @@ export async function detectChecks(projectDir: string): Promise<string[]> {
   if (scripts.build) checks.push("npm run build");
   if (scripts.test && !DEFAULT_TEST.test(scripts.test)) checks.push("npm test");
   return checks;
+}
+
+/** pytest when the project uses it (mentioned in pyproject.toml, or a tests/ directory). */
+async function detectPythonChecks(projectDir: string): Promise<string[]> {
+  const pyproject = existsSync(path.join(projectDir, "pyproject.toml"))
+    ? await readFile(path.join(projectDir, "pyproject.toml"), "utf8")
+    : "";
+  const usesPytest =
+    /\bpytest\b/.test(pyproject) || existsSync(path.join(projectDir, "tests")) || existsSync(path.join(projectDir, "test"));
+  return usesPytest ? ["uv run pytest -q"] : [];
 }
 
 const SHAPE_SCRIPT = `
@@ -65,10 +76,16 @@ export async function changelogExcerpt(projectDir: string, pkg: string, fromVers
 }
 
 /** Source files that use the package or appear in the failing output. */
-export async function relevantFiles(projectDir: string, usages: Usage[], failureOutput: string, maxFiles = 12): Promise<string[]> {
+export async function relevantFiles(
+  projectDir: string,
+  usages: Usage[],
+  failureOutput: string,
+  sourceFiles: string[],
+  maxFiles = 12,
+): Promise<string[]> {
   const files = new Set(usages.map((u) => u.file));
   const normalized = failureOutput.replace(/\\/g, "/");
-  for (const abs of await listSourceFiles(projectDir)) {
+  for (const abs of sourceFiles) {
     const rel = path.relative(projectDir, abs).split(path.sep).join("/");
     if (normalized.includes(rel)) files.add(rel);
   }

@@ -67,7 +67,7 @@ export async function importNames(projectDir: string, distributions: string[]): 
   return out;
 }
 
-async function listPythonFiles(dir: string): Promise<string[]> {
+export async function listPythonFiles(dir: string): Promise<string[]> {
   const out: string[] = [];
   for (const entry of await readdir(dir, { withFileTypes: true })) {
     if (entry.isDirectory()) {
