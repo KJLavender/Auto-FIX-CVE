@@ -6,7 +6,14 @@
 
 在八個會弄壞程式碼的真實安全升級案例中（marked、PyJWT、urllib3、Werkzeug 等，涵蓋 npm、uv、Poetry、Pipenv），它修掉了全部 57 個漏洞，專案的測試也都還是通過。其中六次程式碼修正，模型都只用一輪就完成，總成本約 $0.12（[benchmark](#benchmark)）。
 
-> 狀態：開發初期。`scan` 支援 JavaScript（npm、pnpm、Yarn classic 與 Berry）、Python（uv、Poetry、Pipenv、固定版本的 `requirements.txt`）、Go（`go.mod`）與 Rust（`Cargo.lock`）；`fix` 支援 npm（升級、backport、PR）、pnpm 與 Yarn（升級加 LLM 修正、PR），以及 uv / Poetry / Pipenv、Go module 與 Cargo（升級加 LLM 修正、PR）。
+> 狀態：開發初期。支援矩陣：
+
+| 生態系 | Lockfile | 掃描 + 可達性 | 修復（升級 + LLM 修正） | 遞移依賴修復 | Backport |
+|---|---|---|---|---|---|
+| JavaScript / TypeScript | npm、pnpm（v6–v9、多文件）、Yarn classic + Berry | AST import 分析 | npm、pnpm、Yarn | npm / pnpm 精準版本 override | npm |
+| Python | uv、Poetry、Pipenv、固定版本的 `requirements.txt` | import 分析、`PyYAML` → `yaml` 對應 | uv、Poetry、Pipenv | uv constraints | — |
+| Go | `go.mod` | import 分析 + advisory 的受影響函式清單 | `go.mod` + `go mod tidy` | 支援（明確 require） | — |
+| Rust | `Cargo.lock` | `use` 分析 + RustSec 函式清單 | `Cargo.toml` + `cargo update` | `cargo update --precise` | — |
 
 ## 運作方式
 

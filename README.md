@@ -6,7 +6,14 @@ Most dependency scanners stop at "upgrade to vX". Auto-FIX-CVE closes the loop. 
 
 On eight real security upgrades that break code (marked, PyJWT, urllib3, Werkzeug and others, across npm, uv, Poetry and Pipenv), it fixed all 57 vulnerabilities with the projects' tests still passing. The six code repairs took one model round each, for about $0.12 in total ([benchmark](#benchmark)).
 
-> Status: early development. `scan` supports JavaScript (npm, pnpm, Yarn classic and Berry), Python (uv, Poetry, Pipenv, pinned `requirements.txt`) Go (`go.mod`) and Rust (`Cargo.lock`). `fix` supports npm (upgrade, backport, PRs), pnpm and Yarn (upgrade with LLM repair, PRs) uv / Poetry / Pipenv, Go modules and Cargo (upgrade with LLM repair, PRs).
+> Status: early development. Support matrix:
+
+| Ecosystem | Lockfiles | Scan + reachability | Fix (upgrade + LLM repair) | Transitive fix | Backport |
+|---|---|---|---|---|---|
+| JavaScript / TypeScript | npm, pnpm (v6–v9, multi-doc), Yarn classic + Berry | AST import analysis | npm, pnpm, Yarn | npm / pnpm exact-version overrides | npm |
+| Python | uv, Poetry, Pipenv, pinned `requirements.txt` | import analysis, `PyYAML` → `yaml` mapping | uv, Poetry, Pipenv | uv constraints | — |
+| Go | `go.mod` | import analysis + advisory's vulnerable-function list | `go.mod` + `go mod tidy` | yes (explicit require) | — |
+| Rust | `Cargo.lock` | `use` analysis + RustSec function list | `Cargo.toml` + `cargo update` | `cargo update --precise` | — |
 
 ## How it works
 
