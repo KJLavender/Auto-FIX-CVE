@@ -1,3 +1,4 @@
+import { fetchWithRetry } from "../http.js";
 import type { Vulnerability } from "../types.js";
 import { compareVersions, isValidVersion, normalizeName, type Ecosystem } from "../versions.js";
 
@@ -44,7 +45,7 @@ export class OsvClient {
     const out: string[][] = [];
     for (let i = 0; i < queries.length; i += BATCH_SIZE) {
       const chunk = queries.slice(i, i + BATCH_SIZE);
-      const res = await fetch(`${OSV_API}/querybatch`, {
+      const res = await fetchWithRetry(`${OSV_API}/querybatch`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -61,7 +62,7 @@ export class OsvClient {
   private fetchVuln(id: string): Promise<OsvVuln> {
     let cached = this.vulnCache.get(id);
     if (!cached) {
-      cached = fetch(`${OSV_API}/vulns/${encodeURIComponent(id)}`).then(async (res) => {
+      cached = fetchWithRetry(`${OSV_API}/vulns/${encodeURIComponent(id)}`).then(async (res) => {
         if (!res.ok) throw new Error(`OSV vulns/${id} failed: ${res.status}`);
         return (await res.json()) as OsvVuln;
       });

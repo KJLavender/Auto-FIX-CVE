@@ -1,4 +1,5 @@
 import { runFile } from "../fix/exec.js";
+import { fetchWithRetry } from "../http.js";
 
 const REF = /github\.com\/([^/]+)\/([^/]+)\/(commit|pull)\/([0-9a-f]{7,40}|\d+)/i;
 const MAX_DIFF = 80_000;
@@ -28,7 +29,7 @@ export async function fetchFixDiff(url: string): Promise<string | undefined> {
   if (token) headers.authorization = `Bearer ${token}`;
 
   for (const target of [api, `https://github.com/${owner}/${repo}/${kind}/${ref}.diff`]) {
-    const res = await fetch(target, { headers: target === api ? headers : { "user-agent": "autofix-cve" } }).catch(() => undefined);
+    const res = await fetchWithRetry(target, { headers: target === api ? headers : { "user-agent": "autofix-cve" } }).catch(() => undefined);
     if (!res?.ok) continue;
     const text = await res.text();
     if (text.includes("diff --git")) return text.length > MAX_DIFF ? text.slice(0, MAX_DIFF) + "\n…(truncated)" : text;
