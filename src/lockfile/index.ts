@@ -3,13 +3,14 @@ import { readdir } from "node:fs/promises";
 import path from "node:path";
 import type { Dependency } from "../types.js";
 import { normalizeName } from "../versions.js";
+import { readCargoLock } from "./cargo.js";
 import { readGoMod } from "./go.js";
 import { readNpmLockfile } from "./npm.js";
 import { readPnpmLockfile } from "./pnpm.js";
 import { readPipfileLock, readPoetryLockfile, readRequirements, readUvLockfile } from "./python.js";
 import { readYarnLockfile } from "./yarn.js";
 
-export type LockKind = "npm" | "pnpm" | "yarn" | "uv" | "poetry" | "pipenv" | "requirements" | "go";
+export type LockKind = "npm" | "pnpm" | "yarn" | "uv" | "poetry" | "pipenv" | "requirements" | "go" | "cargo";
 
 export interface Lockfile {
   kind: LockKind;
@@ -28,6 +29,7 @@ const DETECT: { file: string; kind: LockKind }[] = [
   { file: "Pipfile.lock", kind: "pipenv" },
   { file: "requirements.txt", kind: "requirements" },
   { file: "go.mod", kind: "go" },
+  { file: "Cargo.lock", kind: "cargo" },
 ];
 
 const JS_KINDS: LockKind[] = ["npm", "pnpm", "yarn"];
@@ -48,7 +50,8 @@ export function detectLockfiles(projectDir: string): LockRef[] {
   const js = found.find((d) => JS_KINDS.includes(d.kind));
   const py = found.find((d) => PY_KINDS.includes(d.kind));
   const go = found.find((d) => d.kind === "go");
-  return [js, py, go].filter((d): d is LockRef => d !== undefined);
+  const rust = found.find((d) => d.kind === "cargo");
+  return [js, py, go, rust].filter((d): d is LockRef => d !== undefined);
 }
 
 export function detectLockfile(projectDir: string): LockRef {
@@ -86,6 +89,7 @@ export async function readLockfile(projectDir: string, ref: LockRef = detectLock
     pipenv: () => readPipfileLock(projectDir),
     requirements: () => readRequirements(projectDir, file),
     go: () => readGoMod(projectDir),
+    cargo: () => readCargoLock(projectDir),
   };
   return { kind, file, deps: await readers[kind]() };
 }
@@ -103,6 +107,7 @@ export function lockfileLine(kind: LockKind, lines: string[], name: string, vers
         return l === t && (t.startsWith(`${name}@`) || t.startsWith(`"${name}@`));
       case "uv":
       case "poetry":
+      case "cargo":
         return normalizeName("PyPI", t.match(/^name = "([^"]+)"$/)?.[1] ?? "") === name;
       case "pipenv":
         return normalizeName("PyPI", t.match(/^"([^"]+)": \{/)?.[1] ?? "") === name;

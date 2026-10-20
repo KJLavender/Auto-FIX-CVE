@@ -14,6 +14,10 @@ export async function detectChecks(projectDir: string, kind: LockKind): Promise<
   if (kind === "poetry") return detectPythonChecks(projectDir, `${process.env.AUTOFIX_POETRY ?? "poetry"} run`);
   if (kind === "pipenv") return detectPythonChecks(projectDir, `${process.env.AUTOFIX_PIPENV ?? "pipenv"} run`, "Pipfile");
   if (kind === "requirements") return [];
+  if (kind === "cargo") {
+    const cargo = process.env.AUTOFIX_CARGO ?? "cargo";
+    return [`${cargo} build`, `${cargo} test`];
+  }
   if (kind === "go") {
     const go = process.env.AUTOFIX_GO ?? "go";
     return [`${go} build ./...`, `${go} test ./...`];

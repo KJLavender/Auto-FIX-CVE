@@ -106,3 +106,32 @@ jobs:
             if (left.length) { console.error("still vulnerable:", left); process.exit(1); }
             console.log("remaining:", names);
           '
+
+  e2e-rust:
+    # Real fix run on a Rust crate: Cargo.toml pins raised, verified with cargo build and cargo test.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - run: npm ci && npm run build
+      - name: Fix the Rust fixture
+        run: |
+          D="$RUNNER_TEMP/rustapp"
+          cp -r test/fixtures/rust-app "$D"
+          cd "$D"
+          rm Cargo.lock && cargo generate-lockfile
+          echo "target/" > .gitignore
+          git init -q && git add -A && git -c user.name=ci -c user.email=ci@localhost commit -qm base
+          node "$GITHUB_WORKSPACE/dist/cli.js" fix . --only regex smallvec --yes
+          grep -E '^regex|^smallvec' Cargo.toml
+      - name: Rescan shows regex and smallvec fixed
+        run: |
+          node dist/cli.js scan "$RUNNER_TEMP/rustapp" --json > scan.json || true
+          node -e '
+            const names = JSON.parse(require("fs").readFileSync("scan.json", "utf8")).map(f => f.dependency.name);
+            const left = names.filter(n => n === "regex" || n === "smallvec");
+            if (left.length) { console.error("still vulnerable:", left); process.exit(1); }
+            console.log("remaining:", names);
+          '

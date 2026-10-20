@@ -1,6 +1,6 @@
 import semver from "semver";
 
-export type Ecosystem = "npm" | "PyPI" | "Go";
+export type Ecosystem = "npm" | "PyPI" | "Go" | "crates.io";
 
 /** Go module versions are semver with a `v` prefix and sometimes `+incompatible`. */
 function goSemver(v: string): string {

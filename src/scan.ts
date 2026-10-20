@@ -2,6 +2,7 @@ import { appliedBackports, mitigatedIds, readManifest, ruleActive } from "./back
 import { findUsages } from "./impact/analyze.js";
 import { findGoUsages } from "./impact/go.js";
 import { findPythonUsages } from "./impact/python.js";
+import { findRustUsages } from "./impact/rust.js";
 import { readLockfile, type LockRef } from "./lockfile/index.js";
 import { dedupeVulns, OsvClient } from "./osv/client.js";
 import type { Finding, Reachability, Usage, Vulnerability } from "./types.js";
@@ -54,7 +55,7 @@ export function markMentions(usages: Usage[], vulns: Vulnerability[]): void {
       .filter((v) =>
         // Prefer the advisory's own list of vulnerable functions (`Type.Method` matches a call to `Method`).
         v.affectedSymbols?.length
-          ? v.affectedSymbols.some((s) => s === u.symbol || s.split(".").pop() === u.symbol)
+          ? v.affectedSymbols.some((s) => s === u.symbol || s.split(/::|\./).pop() === u.symbol || u.symbol.endsWith(`::${s}`))
           : pattern.test(`${v.summary}\n${v.details}`),
       )
       .map((v) => v.id);
@@ -119,7 +120,7 @@ export async function scan(projectDir: string, options: ScanOptions): Promise<Fi
   // axios is how an app reaches a vulnerable follow-redirects underneath it.
   const introducers = vulnerable.flatMap((v) => (v.dep.direct ? [] : v.dep.introducedBy));
   const wanted = [...new Set([...vulnerable.map((v) => v.dep.name), ...introducers])];
-  const finders = { npm: findUsages, PyPI: findPythonUsages, Go: findGoUsages };
+  const finders = { npm: findUsages, PyPI: findPythonUsages, Go: findGoUsages, "crates.io": findRustUsages };
   const usages = await finders[lock.deps[0]?.ecosystem ?? "npm"](projectDir, wanted);
 
   const rules = (manifest.ignore ?? []).filter((r) => ruleActive(r));

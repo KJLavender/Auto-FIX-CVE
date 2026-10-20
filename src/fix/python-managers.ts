@@ -8,6 +8,7 @@ import { requirementName } from "../lockfile/python.js";
 import type { Dependency } from "../types.js";
 import { normalizeName } from "../versions.js";
 import { run, type CommandResult } from "./exec.js";
+import { rewriteTableEntries } from "./toml-edit.js";
 import type { PackageManager } from "./managers.js";
 
 const SHAPE_PY = [
@@ -129,21 +130,6 @@ export class UvManager extends PythonManager {
     if (!lock.ok) return lock;
     return run("uv sync --all-groups", this.dir);
   }
-}
-
-// ---------------------------------------------------------------- shared table rewriting
-
-/** Rewrites `key = "spec"` and `key = { version = "spec", ... }` lines for every matching key. */
-function rewriteTableEntries(text: string, keys: string[], next: (old: string) => string): string {
-  for (const key of keys) {
-    const quoted = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    text = text.replace(new RegExp(`^(\\s*"?${quoted}"?\\s*=\\s*)"([^"]*)"`, "gm"), (_m, lead: string, old: string) => `${lead}"${next(old)}"`);
-    text = text.replace(
-      new RegExp(`^(\\s*"?${quoted}"?\\s*=\\s*\\{[^}\\n]*version\\s*=\\s*)"([^"]*)"`, "gm"),
-      (_m, lead: string, old: string) => `${lead}"${next(old)}"`,
-    );
-  }
-  return text;
 }
 
 // ---------------------------------------------------------------- Pipenv

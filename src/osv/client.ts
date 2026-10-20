@@ -16,8 +16,8 @@ interface OsvVuln {
   affected?: {
     package?: { name: string; ecosystem: string };
     ranges?: { type: string; events: { introduced?: string; fixed?: string }[] }[];
-    // Go advisories name the exact vulnerable functions.
-    ecosystem_specific?: { imports?: { path: string; symbols?: string[] }[] };
+    // Go advisories name the exact vulnerable functions; RustSec ones list `crate::path::fn`.
+    ecosystem_specific?: { imports?: { path: string; symbols?: string[] }[]; affects?: { functions?: string[] } };
   }[];
 }
 
@@ -170,6 +170,7 @@ function toVulnerability(v: OsvVuln, packageName: string, ecosystem: Ecosystem):
       for (const e of r.events) if (e.fixed) fixedVersions.add(ecosystem === "Go" && !e.fixed.startsWith("v") ? `v${e.fixed}` : e.fixed);
     }
     for (const imp of a.ecosystem_specific?.imports ?? []) for (const sym of imp.symbols ?? []) symbols.add(sym);
+    for (const fn of a.ecosystem_specific?.affects?.functions ?? []) symbols.add(fn.split("::").slice(1).join("::"));
   }
   return {
     id: v.id,

@@ -1,0 +1,10 @@
+[package]
+name = "rust-app"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+regex = "=1.5.4"
+smallvec = { version = "=0.6.9", features = [] }
+
+[dev-dependencies]

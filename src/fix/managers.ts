@@ -1,11 +1,14 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { parse as parseToml } from "smol-toml";
 import { listSourceFiles } from "../impact/analyze.js";
 import { listGoFiles } from "../impact/go.js";
+import { listRustFiles } from "../impact/rust.js";
 import { readLockfile, type LockKind } from "../lockfile/index.js";
 import type { Dependency } from "../types.js";
 import { changelogExcerpt, exportShape } from "./context.js";
 import { run, type CommandResult } from "./exec.js";
+import { rewriteTableEntries } from "./toml-edit.js";
 import { PipenvManager, PoetryManager, UvManager } from "./python-managers.js";
 
 export { splitRequirement } from "./python-managers.js";
@@ -184,14 +187,86 @@ class GoManager implements PackageManager {
   }
 }
 
+/** Cargo requirement for the fix: an exact pin (`=x`) stays exact, anything else becomes a caret floor. */
+export function cargoRequirement(old: string, to: string, exact: boolean): string {
+  return exact || old.trim().startsWith("=") ? `=${to}` : to;
+}
+
+/**
+ * Rust: declared crates get a new requirement in Cargo.toml; a transitive crate
+ * is moved with `cargo update --precise`, which only touches Cargo.lock and
+ * fails (triggering a rollback) if the new version breaks another crate's requirement.
+ */
+class CargoManager implements PackageManager {
+  language = "Rust";
+  canOverride = true;
+  manifestFiles = ["Cargo.toml", "Cargo.lock"];
+  private readonly cargo = process.env.AUTOFIX_CARGO ?? "cargo";
+  private pending: string[] = [];
+  constructor(private readonly dir: string) {}
+
+  private file() {
+    return path.join(this.dir, "Cargo.toml");
+  }
+
+  private async keys(name: string): Promise<string[]> {
+    const doc = parseToml(await readFile(this.file(), "utf8")) as Record<string, any>;
+    const tables = [doc.dependencies, doc["dev-dependencies"], doc["build-dependencies"]];
+    return tables.flatMap((t) => Object.keys(t ?? {})).filter((k) => k === name);
+  }
+
+  async declares(dep: Dependency): Promise<boolean> {
+    return (await this.keys(dep.name)).length > 0;
+  }
+
+  async require(dep: Dependency, to: string, direct: boolean, exact: boolean): Promise<void> {
+    if (direct) {
+      const text = await readFile(this.file(), "utf8");
+      await writeFile(this.file(), rewriteTableEntries(text, await this.keys(dep.name), (old) => cargoRequirement(old, to, exact)), "utf8");
+      this.pending.push(`${this.cargo} update -p ${dep.name}`);
+    } else {
+      this.pending.push(`${this.cargo} update -p ${dep.name}@${dep.version} --precise ${to}`);
+    }
+  }
+
+  async install(): Promise<CommandResult> {
+    // Nothing pending (e.g. a rollback restored Cargo.lock): fetch what the lockfile says, without re-resolving.
+    const commands = this.pending.length ? this.pending : [`${this.cargo} fetch`];
+    this.pending = [];
+    let last: CommandResult = { ok: true, output: "" };
+    for (const command of commands) {
+      last = await run(command, this.dir);
+      if (!last.ok) return last;
+    }
+    return last;
+  }
+
+  async lockedVersions(name: string): Promise<string[]> {
+    return (await readLockfile(this.dir)).deps.filter((d) => d.name === name).map((d) => d.version);
+  }
+
+  async exportShape(): Promise<string> {
+    return "";
+  }
+
+  async changelog(): Promise<string | undefined> {
+    return undefined;
+  }
+
+  sourceFiles() {
+    return listRustFiles(this.dir);
+  }
+}
+
 /** Package managers `fix` can drive; others can be scanned but not fixed yet. */
-export const FIXABLE: LockKind[] = ["npm", "pnpm", "yarn", "uv", "poetry", "pipenv", "go"];
+export const FIXABLE: LockKind[] = ["npm", "pnpm", "yarn", "uv", "poetry", "pipenv", "go", "cargo"];
 
 export function managerFor(kind: LockKind, dir: string): PackageManager {
   if (kind === "npm") return new JsManager(dir);
   if (kind === "pnpm") return new PnpmManager(dir);
   if (kind === "yarn") return new YarnManager(dir);
   if (kind === "go") return new GoManager(dir);
+  if (kind === "cargo") return new CargoManager(dir);
   if (kind === "uv") return new UvManager(dir);
   if (kind === "poetry") return new PoetryManager(dir);
   if (kind === "pipenv") return new PipenvManager(dir);
