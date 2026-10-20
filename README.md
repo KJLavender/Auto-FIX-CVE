@@ -125,6 +125,7 @@ Record vulnerabilities you decided not to fix in `.autofix-cve.json`. A reason i
 node dist/cli.js fix path/to/project --dry-run          # show the plan only
 node dist/cli.js fix path/to/project --check "npm test" # custom verification command(s)
 node dist/cli.js fix path/to/project --only marked      # one package
+node dist/cli.js fix path/to/project --lockfile uv.lock # pick one when JS and Python sit side by side
 node dist/cli.js fix path/to/project --no-breaking      # semver-compatible upgrades only
 node dist/cli.js fix path/to/project --prefer-backport  # backport instead of breaking upgrades
 node dist/cli.js fix path/to/project --no-backport      # never patch installed packages

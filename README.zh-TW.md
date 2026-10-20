@@ -125,6 +125,7 @@ idna@2.10  (transitive via requests)  imported
 node dist/cli.js fix path/to/project --dry-run          # 只顯示計畫
 node dist/cli.js fix path/to/project --check "npm test" # 自訂驗證指令
 node dist/cli.js fix path/to/project --only marked      # 只修指定套件
+node dist/cli.js fix path/to/project --lockfile uv.lock # JS 與 Python 並存時指定要修哪一個
 node dist/cli.js fix path/to/project --no-breaking      # 只做 semver 相容的升級
 node dist/cli.js fix path/to/project --prefer-backport  # 用 backport 取代破壞性升級
 node dist/cli.js fix path/to/project --no-backport      # 永不修改已安裝的套件

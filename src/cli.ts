@@ -14,7 +14,7 @@ import { run } from "./fix/exec.js";
 import { FIXABLE, managerFor } from "./fix/managers.js";
 import { fixFinding, planFinding, readInstalledVersion, verifyBaseline, type FixResult } from "./fix/upgrade.js";
 import { BudgetBackend, CliBackend, DEFAULT_MODEL, type LlmBackend } from "./llm/backend.js";
-import { detectLockfile, detectLockfiles, discoverProjects } from "./lockfile/index.js";
+import { detectLockfiles, discoverProjects } from "./lockfile/index.js";
 import { OsvClient } from "./osv/client.js";
 import { abandonBranch, checkPrPrerequisites, createBranch, openPr } from "./pr.js";
 import { formatFixSummary, formatPlan, formatReport } from "./report.js";
@@ -136,6 +136,7 @@ program
   .argument("[dir]", "project directory containing package-lock.json", ".")
   .option("--check <cmd...>", "verification commands (default: typecheck/build/test scripts)")
   .option("--only <pkg...>", "only fix these packages")
+  .option("--lockfile <file>", "which lockfile to fix when the directory has several (e.g. uv.lock next to package-lock.json)")
   .option("--max-attempts <n>", "model repair rounds per package", (v) => Number.parseInt(v, 10), 3)
   .option("--max-cost <usd>", "stop calling the model once this much has been spent; the fix in progress rolls back", (v) => Number.parseFloat(v))
   .option("--no-dev", "ignore dev-only dependencies")
@@ -153,6 +154,7 @@ program
       opts: {
         check?: string[];
         only?: string[];
+        lockfile?: string;
         maxAttempts: number;
         maxCost?: number;
         dev: boolean;
@@ -169,9 +171,20 @@ program
       const projectDir = path.resolve(dir);
       const log = (m: string) => console.error(pc.dim(m));
 
-      const lock = detectLockfile(projectDir);
+      const found = detectLockfiles(projectDir);
+      const lock = opts.lockfile ? found.find((l) => l.file === opts.lockfile) : found[0];
+      if (!lock) {
+        throw new Error(
+          opts.lockfile
+            ? `${opts.lockfile} is not one of the lockfiles found here: ${found.map((l) => l.file).join(", ") || "none"}.`
+            : `No lockfile in ${projectDir}.`,
+        );
+      }
+      if (!opts.lockfile && found.length > 1) {
+        log(`Several lockfiles here (${found.map((l) => l.file).join(", ")}); fixing ${lock.file}. Use --lockfile to pick another.`);
+      }
       if (!FIXABLE.includes(lock.kind)) {
-        throw new Error(`fix needs a lockfile it can regenerate (npm, pnpm, Yarn, uv, Poetry or Pipenv); ${lock.file} can be scanned but not fixed.`);
+        throw new Error(`fix needs a lockfile it can regenerate; ${lock.file} can be scanned but not fixed.`);
       }
       const manager = managerFor(lock.kind, projectDir);
 
@@ -181,7 +194,7 @@ program
       }
 
       log("Scanning dependencies…");
-      const findings = (await scan(projectDir, { includeDev: opts.dev })).filter(
+      const findings = (await scan(projectDir, { includeDev: opts.dev, lock })).filter(
         (f) => !opts.only || opts.only.includes(f.dependency.name),
       );
       if (findings.length === 0) {
