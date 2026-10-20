@@ -1,4 +1,5 @@
 import { fetchWithRetry } from "../http.js";
+import { registryUsableVersions, type UsableVersions } from "../registry.js";
 import type { Vulnerability } from "../types.js";
 import { compareVersions, isValidVersion, normalizeName, type Ecosystem } from "../versions.js";
 
@@ -42,6 +43,9 @@ const ADVISORY_DB = /github\.com\/(github\/advisory-database|advisories)\//i;
 export class OsvClient {
   private vulnCache = new Map<string, Promise<OsvVuln>>();
 
+  /** `usable` reports installable versions, so a yanked or deprecated release is never suggested. */
+  constructor(private readonly usable: UsableVersions = registryUsableVersions) {}
+
   /** Returns the vulnerability ids affecting each query, in the same order. */
   async queryBatch(queries: PackageQuery[]): Promise<string[][]> {
     const out: string[][] = [];
@@ -59,6 +63,21 @@ export class OsvClient {
       for (const r of body.results) out.push((r.vulns ?? []).map((v) => v.id));
     }
     return out;
+  }
+
+  /**
+   * The smallest installable version at or above `candidate`: a fixed release
+   * may have been yanked (cargo refuses those) or deprecated since. Unknown
+   * registry data leaves the candidate unchanged.
+   */
+  private async installable(name: string, ecosystem: Ecosystem, candidate: string): Promise<string> {
+    const usable = await this.usable(ecosystem, name);
+    if (!usable || usable.has(candidate)) return candidate;
+    const next = [...usable]
+      .filter((v) => isValidVersion(ecosystem, v) && compareVersions(ecosystem, v, candidate) > 0)
+      .filter((v) => !/-|[a-z]/i.test(v.replace(/^v/, ""))) // skip pre-releases
+      .sort((a, b) => compareVersions(ecosystem, a, b))[0];
+    return next ?? candidate;
   }
 
   private fetchVuln(id: string): Promise<OsvVuln> {
@@ -108,6 +127,7 @@ export class OsvClient {
         else if (compareVersions(ecosystem, fix, candidate) > 0) candidate = fix;
       }
       if (candidate === current) return { unfixable: [...unfixable] };
+      candidate = await this.installable(name, ecosystem, candidate);
       const [ids] = await this.queryBatch([{ name, version: candidate, ecosystem }]);
       const remaining = ids.filter((id) => !unfixable.has(id) && !accepted.has(id));
       if (remaining.length === 0) return { version: candidate, unfixable: [...unfixable] };

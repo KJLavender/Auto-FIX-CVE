@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { dedupeVulns, OsvClient } from "../src/osv/client.js";
+import { cratesIndexPath } from "../src/registry.js";
 import type { Vulnerability } from "../src/types.js";
 
 const vuln = (id: string, fixedVersions: string[]): Vulnerability => ({
@@ -28,10 +29,12 @@ function fakeOsv(affected: Record<string, string[]>, details: Record<string, str
 
 afterEach(() => vi.unstubAllGlobals());
 
+const noRegistry = async () => undefined;
+
 describe("findSafeVersion", () => {
   it("picks the smallest version that fixes everything", async () => {
     fakeOsv({ "1.0.0": ["A", "B"], "1.2.0": [] });
-    const osv = new OsvClient();
+    const osv = new OsvClient(noRegistry);
     expect(await osv.findSafeVersion("pkg", "1.0.0", [vuln("A", ["1.1.0"]), vuln("B", ["1.2.0"])])).toEqual({
       version: "1.2.0",
       unfixable: [],
@@ -40,13 +43,13 @@ describe("findSafeVersion", () => {
 
   it("does not stop at a version that is vulnerable to something else", async () => {
     fakeOsv({ "1.1.0": ["C"], "1.3.0": [] }, { C: ["1.3.0"] });
-    const osv = new OsvClient();
+    const osv = new OsvClient(noRegistry);
     expect((await osv.findSafeVersion("pkg", "1.0.0", [vuln("A", ["1.1.0"])])).version).toBe("1.3.0");
   });
 
   it("fixes what it can when some vulnerabilities have no fixed release", async () => {
     fakeOsv({ "1.4.0": ["NOFIX"] });
-    const osv = new OsvClient();
+    const osv = new OsvClient(noRegistry);
     expect(await osv.findSafeVersion("pkg", "0.10.0", [vuln("A", ["1.4.0"]), vuln("NOFIX", [])])).toEqual({
       version: "1.4.0",
       unfixable: ["NOFIX"],
@@ -55,13 +58,13 @@ describe("findSafeVersion", () => {
 
   it("reports no upgrade when nothing is fixable", async () => {
     fakeOsv({});
-    const osv = new OsvClient();
+    const osv = new OsvClient(noRegistry);
     expect(await osv.findSafeVersion("pkg", "1.0.0", [vuln("NOFIX", [])])).toEqual({ unfixable: ["NOFIX"] });
   });
 
   it("chooses the fix on the current release line over an older branch", async () => {
     fakeOsv({ "4.17.21": [] });
-    const osv = new OsvClient();
+    const osv = new OsvClient(noRegistry);
     expect((await osv.findSafeVersion("pkg", "4.17.20", [vuln("A", ["3.10.2", "4.17.21", "5.0.1"])])).version).toBe("4.17.21");
   });
 });
@@ -88,8 +91,26 @@ describe("dedupeVulns", () => {
 describe("findSafeVersion with accepted risks", () => {
   it("does not upgrade further just to fix an ignored vulnerability", async () => {
     fakeOsv({ "1.1.0": ["IGNORED"], "2.0.0": [] }, { IGNORED: ["2.0.0"] });
-    const osv = new OsvClient();
+    const osv = new OsvClient(noRegistry);
     const safe = await osv.findSafeVersion("pkg", "1.0.0", [vuln("A", ["1.1.0"])], "npm", new Set(["IGNORED"]));
     expect(safe.version).toBe("1.1.0");
+  });
+});
+
+describe("findSafeVersion with registry data", () => {
+  it("skips a fixed release that was yanked or deprecated", async () => {
+    fakeOsv({ "1.1.1": [] });
+    const usable = async () => new Set(["1.0.0", "1.1.1", "1.2.0-beta.1", "1.2.0"]);
+    const osv = new OsvClient(usable);
+    expect((await osv.findSafeVersion("pkg", "1.0.0", [vuln("A", ["1.1.0"])])).version).toBe("1.1.1");
+  });
+});
+
+describe("cratesIndexPath", () => {
+  it("follows the sparse index layout", () => {
+    expect(cratesIndexPath("a")).toBe("1/a");
+    expect(cratesIndexPath("cc")).toBe("2/cc");
+    expect(cratesIndexPath("syn")).toBe("3/s/syn");
+    expect(cratesIndexPath("Serde")).toBe("se/rd/serde");
   });
 });

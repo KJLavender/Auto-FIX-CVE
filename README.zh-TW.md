@@ -22,7 +22,7 @@
 
 差異化：
 
-- **建議的安全版本是真的安全**：每個升級目標都會再查一次 OSV，不會升級後又踩到其他 CVE。
+- **建議的安全版本是真的安全，而且裝得起來**：每個升級目標都會再查一次 OSV，不會升級後又踩到其他 CVE；也會跳過已被 yank（PyPI、crates.io）或 deprecated（npm）的版本。例如 lodash 4.18.0 雖然修掉了 CVE，卻被官方標為「bad release」而 deprecated，所以會改為建議 4.18.1。
 - **可達性提示**：每個結果會標成 `LIKELY REACHABLE`、`imported` 或 `not imported`；如果你呼叫的 API（例如 `_.template`）在 advisory 中被點名，會特別標出來；若 advisory 本身列出了受影響的函式（Go 和 RustSec 的 advisory 會列），則以該清單為準，而不是比對說明文字。遞移依賴會追到你實際呼叫的直接依賴，例如 `express` 底下的 `qs`，會顯示你使用 `express` 的那一行。
 - **Backport 要有證據，不是假設**：PoC 必須在未修補的版本重現漏洞、在修補後通過，而且在重新安裝後依然通過，修補才會留下。
 - **不為了修漏洞而引入新依賴**：backport 由一支零依賴的 postinstall 腳本重新套用，腳本會放進你的 repo。實測時，為此安裝的 `patch-package` 本身就帶進了一個有漏洞的遞移依賴。
@@ -64,7 +64,7 @@ node dist/cli.js scan path/to/repo -r             # 掃描 monorepo 裡的每個
 lodash@4.17.20  (direct)  LIKELY REACHABLE
   [HIGH] GHSA-35jh-r3h4-6jhm (CVE-2021-23337)  Command Injection in lodash
       fix: https://github.com/lodash/lodash/commit/3469357cff396a26c363f8c1b5a91dde28ba4b1c
-  → safe version: 4.18.0
+  → safe version: 4.18.1
   used in 2 place(s):
     src/render.ts:5:20  template  const compiled = _.template(userTemplate); ← named in GHSA-35jh-r3h4-6jhm, ...
     src/render.ts:6:19  merge     return compiled(merge({}, data));

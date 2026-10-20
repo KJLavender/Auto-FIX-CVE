@@ -22,7 +22,7 @@ On eight real security upgrades that break code (marked, PyJWT, urllib3, Werkzeu
 
 What sets it apart:
 
-- **The safe version really is safe.** Every suggested upgrade target is re-checked against OSV, so an upgrade never lands on a different CVE.
+- **The safe version really is safe, and installable.** Every suggested upgrade target is re-checked against OSV, so an upgrade never lands on a different CVE. It also skips releases that are yanked (PyPI, crates.io) or deprecated (npm). For example, lodash 4.18.0 fixes the CVEs but is deprecated as a "bad release", so 4.18.1 is suggested instead.
 - **Reachability hints.** Each finding is labelled `LIKELY REACHABLE`, `imported` or `not imported`. A usage is flagged when the API it calls (e.g. `_.template`) is named in the advisory. When the advisory lists its vulnerable functions, as Go and RustSec advisories do, that list is used instead of the prose. Transitive packages are traced to the direct dependency you call: `qs` inside `express` shows the line where you use `express`.
 - **Backports that are proven, not assumed.** A backport is kept only if a PoC reproduces the vulnerability on the unpatched package, passes on the patched one, and still passes after a clean reinstall.
 - **No new dependencies to fix old ones.** Backports are re-applied by a small, dependency-free postinstall script that is committed to your repo. In testing, adding `patch-package` for this pulled in a vulnerable transitive dependency of its own.
@@ -64,7 +64,7 @@ Example (from `test/fixtures/vuln-app`):
 lodash@4.17.20  (direct)  LIKELY REACHABLE
   [HIGH] GHSA-35jh-r3h4-6jhm (CVE-2021-23337)  Command Injection in lodash
       fix: https://github.com/lodash/lodash/commit/3469357cff396a26c363f8c1b5a91dde28ba4b1c
-  → safe version: 4.18.0
+  → safe version: 4.18.1
   used in 2 place(s):
     src/render.ts:5:20  template  const compiled = _.template(userTemplate); ← named in GHSA-35jh-r3h4-6jhm, ...
     src/render.ts:6:19  merge     return compiled(merge({}, data));
