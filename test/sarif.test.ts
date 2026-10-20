@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { toSarif } from "../src/sarif.js";
+import { mergeSarif, toSarif } from "../src/sarif.js";
 import type { Finding } from "../src/types.js";
 
 const finding: Finding = {
@@ -53,5 +53,18 @@ describe("toSarif", () => {
     ]);
     expect(run.results[0].relatedLocations).toHaveLength(2);
     expect(run.results[1].message.text).toContain("Calls `template`");
+  });
+});
+
+describe("mergeSarif", () => {
+  it("combines projects into one run without duplicating rules", () => {
+    const log = (rules: string[], results: number) => ({
+      $schema: "",
+      version: "2.1.0",
+      runs: [{ tool: { driver: { name: "x", version: "1", informationUri: "", rules: rules.map((id) => ({ id })) } }, results: Array.from({ length: results }, () => ({})) }],
+    });
+    const merged = mergeSarif([log(["A", "B"], 2), log(["B", "C"], 3)]);
+    expect(merged.runs[0].tool.driver.rules.map((r) => r.id)).toEqual(["A", "B", "C"]);
+    expect(merged.runs[0].results).toHaveLength(5);
   });
 });

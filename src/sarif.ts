@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { detectLockfile, lockfileLine } from "./lockfile/index.js";
+import { detectLockfile, lockfileLine, type LockRef } from "./lockfile/index.js";
 import type { Finding, Vulnerability } from "./types.js";
 
 // GitHub code scanning ranks alerts by this numeric score (CVSS-like, 0-10).
@@ -23,6 +23,32 @@ function location(uri: string, startLine: number, startColumn?: number, text?: s
   };
 }
 
+interface SarifRule {
+  id: string;
+  [key: string]: unknown;
+}
+
+export interface SarifLog {
+  $schema: string;
+  version: string;
+  runs: {
+    tool: { driver: { name: string; version: string; informationUri: string; rules: SarifRule[] } };
+    results: object[];
+  }[];
+}
+
+/** Combines per-project logs into one run, so code scanning shows a monorepo as a single report. */
+export function mergeSarif(logs: SarifLog[]): SarifLog {
+  const [first, ...rest] = logs;
+  const run = first.runs[0];
+  const ids = new Set(run.tool.driver.rules.map((r) => r.id));
+  for (const log of rest) {
+    for (const rule of log.runs[0].tool.driver.rules) if (!ids.has(rule.id) && ids.add(rule.id)) run.tool.driver.rules.push(rule);
+    run.results.push(...log.runs[0].results);
+  }
+  return first;
+}
+
 /**
  * Builds a SARIF 2.1.0 log: one alert per vulnerable package on its lockfile
  * entry, plus one per call site whose API the advisory names, so code
@@ -33,12 +59,13 @@ export async function toSarif(
   findings: Finding[],
   version: string,
   baseDir = process.cwd(),
-): Promise<object> {
+  lockRef: LockRef = detectLockfile(projectDir),
+): Promise<SarifLog> {
   // Code scanning resolves URIs against the repository root, which is where CI runs.
   const uri = (file: string) => path.relative(baseDir, path.join(projectDir, file)).split(path.sep).join("/");
-  const { file: lockName, kind } = detectLockfile(projectDir);
+  const { file: lockName, kind } = lockRef;
   const lock = (await readFile(path.join(projectDir, lockName), "utf8")).split(/\r?\n/);
-  const rules = new Map<string, object>();
+  const rules = new Map<string, SarifRule>();
   const results: object[] = [];
 
   for (const f of findings) {

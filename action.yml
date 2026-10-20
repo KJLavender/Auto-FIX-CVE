@@ -8,6 +8,9 @@ inputs:
   path:
     description: Project directory containing package-lock.json, relative to the repository root.
     default: "."
+  recursive:
+    description: Also scan every project in subdirectories (monorepos).
+    default: "false"
   fail-on:
     description: "Fail the job when findings match: any, likely (reachable from your code), high (severity), none."
     default: any
@@ -47,11 +50,14 @@ runs:
         INPUT_FAIL_ON: ${{ inputs.fail-on }}
         INPUT_SARIF: ${{ inputs.sarif-file }}
         INPUT_DEV: ${{ inputs.include-dev }}
+        INPUT_RECURSIVE: ${{ inputs.recursive }}
       run: |
         dev_flag=""
         [ "$INPUT_DEV" = "true" ] || dev_flag="--no-dev"
+        recursive_flag=""
+        [ "$INPUT_RECURSIVE" = "true" ] && recursive_flag="--recursive"
         set +e
-        node "$GITHUB_ACTION_PATH/dist/cli.js" scan "$INPUT_PATH" --sarif "$INPUT_SARIF" --fail-on "$INPUT_FAIL_ON" $dev_flag
+        node "$GITHUB_ACTION_PATH/dist/cli.js" scan "$INPUT_PATH" --sarif "$INPUT_SARIF" --fail-on "$INPUT_FAIL_ON" $dev_flag $recursive_flag
         echo "exit-code=$?" >> "$GITHUB_OUTPUT"
 
     - name: Upload SARIF

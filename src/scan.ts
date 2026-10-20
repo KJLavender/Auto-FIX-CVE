@@ -1,13 +1,15 @@
 import { appliedBackports, mitigatedIds, readManifest } from "./backport/manifest.js";
 import { findUsages } from "./impact/analyze.js";
 import { findPythonUsages } from "./impact/python.js";
-import { readLockfile } from "./lockfile/index.js";
+import { readLockfile, type LockRef } from "./lockfile/index.js";
 import { OsvClient } from "./osv/client.js";
 import type { Finding, Reachability, Usage, Vulnerability } from "./types.js";
 import { isBreakingUpgrade } from "./versions.js";
 
 export interface ScanOptions {
   includeDev: boolean;
+  /** Which lockfile to scan when the directory has several; defaults to the first found. */
+  lock?: LockRef;
 }
 
 const SEVERITY_RANK: Record<string, number> = { CRITICAL: 4, HIGH: 3, MODERATE: 2, MEDIUM: 2, LOW: 1 };
@@ -81,7 +83,7 @@ export async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) =>
 }
 
 export async function scan(projectDir: string, options: ScanOptions): Promise<Finding[]> {
-  const lock = await readLockfile(projectDir);
+  const lock = await readLockfile(projectDir, options.lock);
   const deps = lock.deps.filter((d) => options.includeDev || !d.dev);
   const osv = new OsvClient();
   const hits = await osv.queryBatch(deps.map((d) => ({ name: d.name, version: d.version, ecosystem: d.ecosystem })));

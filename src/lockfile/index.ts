@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { readdir } from "node:fs/promises";
 import path from "node:path";
 import type { Dependency } from "../types.js";
 import { normalizeName } from "../versions.js";
@@ -27,14 +28,49 @@ const DETECT: { file: string; kind: LockKind }[] = [
   { file: "requirements.txt", kind: "requirements" },
 ];
 
-export function detectLockfile(projectDir: string): { file: string; kind: LockKind } {
-  const found = DETECT.find((d) => existsSync(path.join(projectDir, d.file)));
+export interface LockRef {
+  file: string;
+  kind: LockKind;
+}
+
+/**
+ * Every lockfile in a directory, one per ecosystem: a repo with a JS frontend
+ * and a Python backend side by side gets both. Within an ecosystem the first
+ * match wins (a real lockfile beats requirements.txt).
+ */
+export function detectLockfiles(projectDir: string): LockRef[] {
+  const found = DETECT.filter((d) => existsSync(path.join(projectDir, d.file)));
+  const js = found.find((d) => ["npm", "pnpm", "yarn"].includes(d.kind));
+  const py = found.find((d) => !["npm", "pnpm", "yarn"].includes(d.kind));
+  return [js, py].filter((d): d is LockRef => d !== undefined);
+}
+
+export function detectLockfile(projectDir: string): LockRef {
+  const [found] = detectLockfiles(projectDir);
   if (!found) throw new Error(`No lockfile in ${projectDir} (looked for ${DETECT.map((d) => d.file).join(", ")}).`);
   return found;
 }
 
-export async function readLockfile(projectDir: string): Promise<Lockfile> {
-  const { file, kind } = detectLockfile(projectDir);
+const SKIP_DIRS = new Set(["node_modules", ".git", ".venv", "venv", "env", "__pycache__", "dist", "build", "site-packages", ".tox", "coverage"]);
+
+/** Directories under `root` (inclusive) that contain a lockfile. */
+export async function discoverProjects(root: string, maxDepth = 6): Promise<{ dir: string; lock: LockRef }[]> {
+  const out: { dir: string; lock: LockRef }[] = [];
+  const walk = async (dir: string, depth: number) => {
+    for (const lock of detectLockfiles(dir)) out.push({ dir, lock });
+    if (depth >= maxDepth) return;
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
+      if (entry.isDirectory() && !SKIP_DIRS.has(entry.name) && !entry.name.startsWith(".")) {
+        await walk(path.join(dir, entry.name), depth + 1);
+      }
+    }
+  };
+  await walk(root, 0);
+  return out;
+}
+
+export async function readLockfile(projectDir: string, ref: LockRef = detectLockfile(projectDir)): Promise<Lockfile> {
+  const { file, kind } = ref;
   const readers: Record<LockKind, () => Promise<Dependency[]>> = {
     npm: () => readNpmLockfile(projectDir, file),
     pnpm: () => readPnpmLockfile(projectDir),

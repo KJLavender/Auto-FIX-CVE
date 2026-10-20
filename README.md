@@ -42,7 +42,10 @@ node dist/cli.js verify path/to/project     # re-run backport PoCs (for CI)
 ```bash
 node dist/cli.js scan path/to/project --json      # machine-readable
 node dist/cli.js scan path/to/project --no-dev    # skip dev-only deps
+node dist/cli.js scan path/to/repo -r             # every project in a monorepo
 ```
+
+A directory with both a JavaScript and a Python lockfile gets both scanned. `--recursive` walks subdirectories (skipping `node_modules`, virtualenvs and build output), prints one section per project, and merges everything into one SARIF report.
 
 Exit codes: `0` no vulnerabilities, `1` vulnerabilities found, `2` error.
 
@@ -218,7 +221,7 @@ jobs:
           fail-on: likely      # any | likely | high | none
 ```
 
-The action scans, uploads a SARIF report to code scanning, and runs `verify` when the project has backports. Alerts appear on the lockfile entry **and on the exact lines that call the API named in the advisory**. Inputs: `path`, `fail-on`, `include-dev`, `sarif-file`, `upload-sarif`, `verify`.
+The action scans, uploads a SARIF report to code scanning, and runs `verify` when the project has backports. Alerts appear on the lockfile entry **and on the exact lines that call the API named in the advisory**. Inputs: `path`, `recursive`, `fail-on`, `include-dev`, `sarif-file`, `upload-sarif`, `verify`.
 
 The same options are available locally:
 

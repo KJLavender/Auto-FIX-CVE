@@ -1,6 +1,8 @@
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { lockfileLine, readLockfile } from "../src/lockfile/index.js";
+import { discoverProjects, lockfileLine, readLockfile } from "../src/lockfile/index.js";
 import { parseYarnV1 } from "../src/lockfile/yarn.js";
 
 const FIXTURES = path.join(import.meta.dirname, "fixtures/lockfiles");
@@ -45,5 +47,24 @@ describe("lockfile helpers", () => {
     expect(lockfileLine("npm", ["{", '    "node_modules/lodash": {'], "lodash", "4.17.21")).toBe(2);
     expect(lockfileLine("pnpm", ["packages:", "  lodash@4.17.21:"], "lodash", "4.17.21")).toBe(2);
     expect(lockfileLine("yarn", ["  dependencies:", '    lodash "^4"', '"lodash@npm:^4.17.20":'], "lodash", "4.17.21")).toBe(3);
+  });
+});
+
+describe("project discovery", () => {
+  it("finds one lockfile per ecosystem in each directory and skips installed packages", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "autofix-mono-"));
+    const touch = async (rel: string) => {
+      await mkdir(path.dirname(path.join(root, rel)), { recursive: true });
+      await writeFile(path.join(root, rel), "");
+    };
+    await touch("package-lock.json");
+    await touch("api/uv.lock");
+    await touch("api/requirements.txt");
+    await touch("web/pnpm-lock.yaml");
+    await touch("web/node_modules/dep/package-lock.json");
+    await touch(".venv/lib/requirements.txt");
+
+    const found = (await discoverProjects(root)).map((p) => `${path.relative(root, p.dir).split(path.sep).join("/") || "."}:${p.lock.kind}`);
+    expect(found.sort()).toEqual([".:npm", "api:uv", "web:pnpm"]);
   });
 });

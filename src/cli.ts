@@ -12,13 +12,14 @@ import { run } from "./fix/exec.js";
 import { FIXABLE, managerFor } from "./fix/managers.js";
 import { fixFinding, planFinding, readInstalledVersion, verifyBaseline, type FixResult } from "./fix/upgrade.js";
 import { CliBackend, DEFAULT_MODEL } from "./llm/backend.js";
-import { detectLockfile } from "./lockfile/index.js";
+import { detectLockfile, detectLockfiles, discoverProjects } from "./lockfile/index.js";
 import { OsvClient } from "./osv/client.js";
 import { abandonBranch, checkPrPrerequisites, createBranch, openPr } from "./pr.js";
 import { formatFixSummary, formatPlan, formatReport } from "./report.js";
-import { toSarif } from "./sarif.js";
+import { mergeSarif, toSarif, type SarifLog } from "./sarif.js";
 import { triageFindings } from "./triage.js";
 import { fails, scan, type FailOn } from "./scan.js";
+import type { Finding } from "./types.js";
 
 const VERSION = "0.1.0";
 
@@ -32,6 +33,17 @@ async function confirm(question: string): Promise<boolean> {
   }
 }
 
+interface ScanCliOptions {
+  recursive?: boolean;
+  json?: boolean;
+  dev: boolean;
+  maxUsages: number;
+  sarif?: string;
+  failOn: FailOn;
+  triage?: boolean;
+  triageLimit: number;
+}
+
 const program = new Command();
 
 program
@@ -41,8 +53,9 @@ program
 
 program
   .command("scan")
-  .description("Scan a project's lockfile for known vulnerabilities and map them to your code")
-  .argument("[dir]", "project directory containing package-lock.json", ".")
+  .description("Scan a project's lockfiles for known vulnerabilities and map them to your code")
+  .argument("[dir]", "project directory (npm, pnpm, Yarn, uv, Poetry, Pipenv or requirements.txt)", ".")
+  .option("-r, --recursive", "also scan every project in subdirectories (monorepos)")
   .option("--json", "print machine-readable JSON")
   .option("--no-dev", "ignore dev-only dependencies")
   .option("--max-usages <n>", "usages to show per package", (v) => Number.parseInt(v, 10), 10)
@@ -53,41 +66,44 @@ program
       .default("any"),
   )
   .option("--triage", "ask the model whether each imported vulnerable package is reachable from your call sites")
-  .option("--triage-limit <n>", "packages to triage at most", (v) => Number.parseInt(v, 10), 10)
-  .action(
-    async (
-      dir: string,
-      opts: {
-        json?: boolean;
-        dev: boolean;
-        maxUsages: number;
-        sarif?: string;
-        failOn: FailOn;
-        triage?: boolean;
-        triageLimit: number;
-      },
-    ) => {
-    const projectDir = path.resolve(dir);
-    const findings = await scan(projectDir, { includeDev: opts.dev });
-    if (opts.triage) {
-      const log = (m: string) => console.error(pc.dim(m));
-      const cost = await triageFindings(projectDir, findings, new CliBackend(), opts.triageLimit, log);
-      log(`Triage cost: $${cost.toFixed(4)}`);
-    }
-    if (opts.sarif) {
-      const sarif = await toSarif(projectDir, findings, VERSION);
-      await writeFile(opts.sarif, JSON.stringify(sarif, null, 2) + "\n", "utf8");
-    }
-    console.log(opts.json ? JSON.stringify(findings, null, 2) : formatReport(findings, opts.maxUsages));
-    const manifest = await readManifest(projectDir);
-    if (manifest.backports.length && !opts.json) {
-      const applied = await appliedBackports(projectDir, manifest);
-      for (const b of manifest.backports) {
-        const label = applied.includes(b) ? pc.green("backported") : pc.red("backport NOT applied (run npm install)");
-        console.log(`${label}  ${b.package}@${b.version}  ${pc.dim(b.vulns.join(", "))}`);
+  .option("--triage-limit <n>", "packages to triage at most, per project", (v) => Number.parseInt(v, 10), 10)
+  .action(async (dir: string, opts: ScanCliOptions) => {
+    const root = path.resolve(dir);
+    const projects = opts.recursive
+      ? await discoverProjects(root)
+      : detectLockfiles(root).map((lock) => ({ dir: root, lock }));
+    if (projects.length === 0) throw new Error(`No lockfile found in ${root}${opts.recursive ? " or below" : ""}.`);
+
+    const log = (m: string) => console.error(pc.dim(m));
+    const all: { project: string; lockfile: string; findings: Finding[] }[] = [];
+    const logs: SarifLog[] = [];
+    for (const { dir: projectDir, lock } of projects) {
+      const label = path.relative(root, path.join(projectDir, lock.file)).split(path.sep).join("/");
+      const findings = await scan(projectDir, { includeDev: opts.dev, lock });
+      if (opts.triage) {
+        const cost = await triageFindings(projectDir, findings, new CliBackend(), opts.triageLimit, log);
+        log(`Triage cost (${label}): $${cost.toFixed(4)}`);
+      }
+      if (opts.sarif) logs.push(await toSarif(projectDir, findings, VERSION, process.cwd(), lock));
+      all.push({ project: path.relative(root, projectDir).split(path.sep).join("/") || ".", lockfile: label, findings });
+
+      if (opts.json) continue;
+      if (projects.length > 1) console.log(pc.bold(pc.cyan(`\n== ${label} ==`)));
+      console.log(formatReport(findings, opts.maxUsages));
+      const manifest = await readManifest(projectDir);
+      if (manifest.backports.length) {
+        const applied = await appliedBackports(projectDir, manifest);
+        for (const b of manifest.backports) {
+          const status = applied.includes(b) ? pc.green("backported") : pc.red("backport NOT applied (run npm install)");
+          console.log(`${status}  ${b.package}@${b.version}  ${pc.dim(b.vulns.join(", "))}`);
+        }
       }
     }
-    process.exitCode = findings.some((f) => fails(f, opts.failOn)) ? 1 : 0;
+
+    if (opts.sarif) await writeFile(opts.sarif, JSON.stringify(mergeSarif(logs), null, 2) + "\n", "utf8");
+    // One project keeps the original output shape: a plain array of findings.
+    if (opts.json) console.log(JSON.stringify(all.length === 1 ? all[0].findings : all, null, 2));
+    process.exitCode = all.some((p) => p.findings.some((f) => fails(f, opts.failOn))) ? 1 : 0;
   });
 
 program
