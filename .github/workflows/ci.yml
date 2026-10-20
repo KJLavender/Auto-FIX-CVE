@@ -48,3 +48,30 @@ jobs:
             if (!uris.includes("test/fixtures/vuln-app/src/render.ts")) { console.error(uris); process.exit(1); }
             console.log(s.runs[0].results.length + " results");
           '
+
+  e2e:
+    # Real fix run against npm and OSV, limited to semver-compatible upgrades so no model is needed.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - run: npm ci && npm run build
+      - name: Fix the vulnerable fixture
+        run: |
+          D="$RUNNER_TEMP/app"
+          cp -r test/fixtures/vuln-app "$D"
+          cd "$D"
+          npm install --ignore-scripts --no-audit --no-fund
+          git init -q && git add -A && git -c user.name=ci -c user.email=ci@localhost commit -qm base
+          node "$GITHUB_WORKSPACE/dist/cli.js" fix . --only lodash minimist --yes
+      - name: Rescan shows lodash and minimist fixed, axios untouched
+        run: |
+          node dist/cli.js scan "$RUNNER_TEMP/app" --json > scan.json || true
+          node -e '
+            const names = JSON.parse(require("fs").readFileSync("scan.json", "utf8")).map(f => f.dependency.name);
+            if (names.includes("lodash") || names.includes("minimist")) { console.error("still vulnerable:", names); process.exit(1); }
+            if (!names.includes("axios")) { console.error("axios should not have been touched:", names); process.exit(1); }
+            console.log("remaining:", names);
+          '
