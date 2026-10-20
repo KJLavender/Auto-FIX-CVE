@@ -7,7 +7,7 @@ import { describeVuln, type FixOptions, type FixResult } from "../fix/upgrade.js
 import type { Finding, Vulnerability } from "../types.js";
 import { fetchFixDiff, removedLines, splitDiff } from "./github.js";
 import { locateTargets } from "./locate.js";
-import { addBackport, MANIFEST } from "./manifest.js";
+import { addBackport, MANIFEST, readManifest } from "./manifest.js";
 import { generatePoc, pocPath, runPoc, writePoc, type PocRun } from "./poc.js";
 import { APPLY_SCRIPT, ensurePostinstall, patchFileFor, writePatch } from "./replay.js";
 
@@ -196,7 +196,12 @@ export async function backportFinding(projectDir: string, finding: Finding, opts
   await ensurePostinstall(projectDir);
   await rm(pkgDir, { recursive: true, force: true });
   const reinstall = await run("npm install", projectDir);
-  const after = await Promise.all(verified.map((v) => runPoc(projectDir, v.poc)));
+  // Earlier backports of this version are replayed from the same patch file, so their PoCs must still pass too.
+  const earlier = (await readManifest(projectDir)).backports
+    .filter((b) => b.package === name && b.version === version)
+    .flatMap((b) => b.pocs.map((p) => path.resolve(projectDir, p)));
+  const pocs = [...new Set([...verified.map((v) => path.resolve(v.poc)), ...earlier])];
+  const after = await Promise.all(pocs.map((p) => runPoc(projectDir, p)));
   if (!reinstall.ok || !after.every((r) => r.verdict === "safe")) {
     return rollback("the patch did not survive a clean reinstall (is ignore-scripts enabled?)");
   }

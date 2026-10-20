@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { patchApplied } from "./replay.js";
 
@@ -26,10 +26,19 @@ export async function readManifest(projectDir: string): Promise<Manifest> {
   return JSON.parse(await readFile(file, "utf8")) as Manifest;
 }
 
+/** Records a backport, merging with an earlier one for the same version instead of replacing it. */
 export async function addBackport(projectDir: string, record: BackportRecord): Promise<void> {
   const manifest = await readManifest(projectDir);
-  manifest.backports = manifest.backports.filter((b) => !(b.package === record.package && b.version === record.version));
-  manifest.backports.push(record);
+  const same = (b: BackportRecord) => b.package === record.package && b.version === record.version;
+  const previous = manifest.backports.find(same);
+  const union = (a: string[] = [], b: string[]) => [...new Set([...a, ...b])];
+  manifest.backports = manifest.backports.filter((b) => !same(b));
+  manifest.backports.push({
+    ...record,
+    vulns: union(previous?.vulns, record.vulns),
+    pocs: union(previous?.pocs, record.pocs),
+    fixCommits: union(previous?.fixCommits, record.fixCommits),
+  });
   await writeFile(path.join(projectDir, MANIFEST), JSON.stringify(manifest, null, 2) + "\n", "utf8");
 }
 
@@ -38,6 +47,19 @@ export async function appliedBackports(projectDir: string, manifest: Manifest): 
   const applied: BackportRecord[] = [];
   for (const b of manifest.backports) if (await patchApplied(projectDir, b.patch)) applied.push(b);
   return applied;
+}
+
+/**
+ * Drops the backport for a package version that is no longer installed (e.g.
+ * after an upgrade), deleting its patch so postinstall stops warning about it.
+ */
+export async function removeBackport(projectDir: string, name: string, version: string): Promise<void> {
+  const manifest = await readManifest(projectDir);
+  const stale = manifest.backports.filter((b) => b.package === name && b.version === version);
+  if (stale.length === 0) return;
+  for (const b of stale) await rm(path.join(projectDir, b.patch), { force: true });
+  manifest.backports = manifest.backports.filter((b) => !stale.includes(b));
+  await writeFile(path.join(projectDir, MANIFEST), JSON.stringify(manifest, null, 2) + "\n", "utf8");
 }
 
 /** Vulnerability ids already mitigated by a backport for exactly this installed version. */

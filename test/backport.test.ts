@@ -1,11 +1,13 @@
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { removedLines, splitDiff } from "../src/backport/github.js";
 import { anchorsFor, locateTargets } from "../src/backport/locate.js";
-import { APPLY_SCRIPT, ensurePostinstall, patchApplied, writePatch } from "../src/backport/replay.js";
+import { addBackport, readManifest, removeBackport } from "../src/backport/manifest.js";
+import { APPLY_SCRIPT, ensurePostinstall, patchApplied, readPatch, writePatch } from "../src/backport/replay.js";
 
 const DIFF = `diff --git a/src/rules.js b/src/rules.js
 --- a/src/rules.js
@@ -93,5 +95,31 @@ describe("replay script", () => {
     await ensurePostinstall(dir);
     const pkg = JSON.parse(await readFile(path.join(dir, "package.json"), "utf8"));
     expect(pkg.scripts.postinstall).toBe(`echo hi && node ${APPLY_SCRIPT}`);
+  });
+});
+
+describe("repeated backports", () => {
+  it("stack on the same version instead of replacing earlier ones", async () => {
+    const dir = await tempProject();
+    const first = { file: "dist/index.js", search: "/a+b/", replace: "/a+?b/" };
+    const second = { file: "dist/index.js", search: "const unsafe = true;\n", replace: "" };
+    await writePatch(dir, { package: "lib", version: "1.0.0", path: "node_modules/lib", edits: [first] });
+    const rel = await writePatch(dir, { package: "lib", version: "1.0.0", path: "node_modules/lib", edits: [second] });
+    expect((await readPatch(dir, "lib", "1.0.0"))?.edits).toEqual([first, second]);
+
+    const record = { package: "lib", version: "1.0.0", patch: rel, date: "2026-10-20" };
+    await addBackport(dir, { ...record, vulns: ["GHSA-1"], pocs: ["a.cjs"], fixCommits: ["c1"] });
+    await addBackport(dir, { ...record, vulns: ["GHSA-2"], pocs: ["b.cjs"], fixCommits: ["c1"] });
+    const [merged] = (await readManifest(dir)).backports;
+    expect(merged).toMatchObject({ vulns: ["GHSA-1", "GHSA-2"], pocs: ["a.cjs", "b.cjs"], fixCommits: ["c1"] });
+  });
+
+  it("are removed with their patch once the package is upgraded", async () => {
+    const dir = await tempProject();
+    const rel = await writePatch(dir, { package: "lib", version: "1.0.0", path: "node_modules/lib", edits: [] });
+    await addBackport(dir, { package: "lib", version: "1.0.0", patch: rel, vulns: ["GHSA-1"], pocs: [], fixCommits: [], date: "" });
+    await removeBackport(dir, "lib", "1.0.0");
+    expect((await readManifest(dir)).backports).toEqual([]);
+    expect(existsSync(path.join(dir, rel))).toBe(false);
   });
 });

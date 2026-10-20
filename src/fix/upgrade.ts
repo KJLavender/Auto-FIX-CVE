@@ -2,6 +2,8 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { canBackport } from "../backport/backport.js";
+import { MANIFEST, removeBackport } from "../backport/manifest.js";
+import { patchFileFor } from "../backport/replay.js";
 import type { LlmBackend } from "../llm/backend.js";
 import type { OsvClient } from "../osv/client.js";
 import type { Finding } from "../types.js";
@@ -191,6 +193,8 @@ export async function fixFinding(projectDir: string, finding: Finding, opts: Fix
 
   const originals = new Map<string, string | null>();
   for (const f of pm.manifestFiles) await snapshot(originals, path.join(projectDir, f));
+  // A backport of the old version becomes stale once the package moves on.
+  for (const f of [MANIFEST, patchFileFor(dep.name, dep.version)]) await snapshot(originals, path.join(projectDir, f));
 
   const rollback = async (reason: string): Promise<FixResult> => {
     opts.log(`  rolling back ${dep.name}: ${reason}`);
@@ -219,6 +223,15 @@ export async function fixFinding(projectDir: string, finding: Finding, opts: Fix
       if (!install.ok) return rollback(`install failed:\n${tail(install.output, 2000)}`);
       break;
     }
+  }
+
+  // Another package may still hold a nested copy of the old version. If the fix is
+  // semver-compatible, override that copy too; a breaking one would break its consumer.
+  if (direct && !finding.breaking && (await pm.lockedVersions(dep.name)).includes(dep.version)) {
+    opts.log(`  ${dep.name}@${dep.version} is still pulled in by another package; overriding that copy too`);
+    await pm.require(dep, to, false, false);
+    install = await pm.install();
+    if (!install.ok) return rollback(`install failed:\n${tail(install.output, 2000)}`);
   }
 
   // The lockfile must no longer resolve the vulnerable version anywhere.
@@ -272,5 +285,6 @@ export async function fixFinding(projectDir: string, finding: Finding, opts: Fix
   ];
   if (result.attempts) evidence.push(`code repaired by the model in ${result.attempts} round(s)`);
   if (finding.unfixable.length) evidence.push(`still open, no fixed release exists yet: ${finding.unfixable.join(", ")}`);
+  if (direct) await removeBackport(projectDir, dep.name, dep.version);
   return { ...result, status: "fixed", evidence, changedFiles: await changedSince(projectDir, originals) };
 }

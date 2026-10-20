@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Edit } from "../fix/edits.js";
@@ -73,10 +74,19 @@ export function patchFileFor(name: string, version: string): string {
   return `${PATCH_DIR}/${name.replace("/", "+")}@${version}.json`;
 }
 
+/** Edits already recorded for this exact package version, if an earlier backport exists. */
+export async function readPatch(projectDir: string, name: string, version: string): Promise<PatchFile | undefined> {
+  const file = path.join(projectDir, patchFileFor(name, version));
+  return existsSync(file) ? (JSON.parse(await readFile(file, "utf8")) as PatchFile) : undefined;
+}
+
+/** Writes the patch, keeping edits from earlier backports of the same version first. */
 export async function writePatch(projectDir: string, patch: PatchFile): Promise<string> {
   const rel = patchFileFor(patch.package, patch.version);
+  const previous = (await readPatch(projectDir, patch.package, patch.version))?.edits ?? [];
+  const merged = { ...patch, edits: [...previous, ...patch.edits] };
   await mkdir(path.join(projectDir, PATCH_DIR), { recursive: true });
-  await writeFile(path.join(projectDir, rel), JSON.stringify(patch, null, 2) + "\n", "utf8");
+  await writeFile(path.join(projectDir, rel), JSON.stringify(merged, null, 2) + "\n", "utf8");
   await writeFile(path.join(projectDir, APPLY_SCRIPT), SCRIPT, "utf8");
   return rel;
 }
