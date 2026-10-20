@@ -292,7 +292,7 @@ The fixtures under `test/fixtures/` are intentionally vulnerable. Copy them to a
 - [x] Fix pnpm projects (exact-version `pnpm.overrides`) and Yarn projects (declared packages; Yarn resolutions cannot target a single version)
 - [x] Scan Python projects: uv, Poetry, Pipenv, requirements.txt; PEP 440 versions; import analysis that maps distributions to modules (`PyYAML` → `yaml`) via the virtualenv's `top_level.txt`
 - [x] Fix uv, Poetry and Pipenv projects (upgrade + LLM repair)
-- [ ] Python backports
+- [ ] Python backports. Deliberately not done yet, for two reasons. Python package managers have no post-install hook, so a patch to site-packages would silently disappear on the next `uv sync` / `pip install`. And Python has no built-in permission sandbox like Node's, so running a model-written PoC derived from untrusted advisory text could not be contained to the same standard.
 
 ## License
 

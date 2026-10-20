@@ -292,7 +292,7 @@ npm run dev -- scan test/fixtures/vuln-app
 - [x] 修復 pnpm 專案（精準版本的 `pnpm.overrides`）與 Yarn 專案（僅限宣告的套件；Yarn resolutions 無法只針對單一版本）
 - [x] 掃描 Python 專案：uv、Poetry、Pipenv、requirements.txt；支援 PEP 440 版本規則；import 分析會把套件名對應到模組名（`PyYAML` → `yaml`），優先讀 virtualenv 裡的 `top_level.txt`
 - [x] 修復 uv、Poetry 與 Pipenv 專案（升級加 LLM 修正）
-- [ ] Python backport
+- [ ] Python backport：刻意暫不實作，原因有兩個。Python 的套件管理器沒有 post-install hook，修改 site-packages 的修補會在下一次 `uv sync` / `pip install` 時悄悄消失；而且 Python 沒有像 Node 那樣的內建 permission sandbox，執行模型根據不可信的 advisory 寫出的 PoC 時，無法做到同等程度的隔離。
 
 ## 授權
 
