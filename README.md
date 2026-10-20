@@ -6,7 +6,7 @@ Most dependency scanners stop at "upgrade to vX". Auto-FIX-CVE closes the loop. 
 
 On eight real security upgrades that break code (marked, PyJWT, urllib3, Werkzeug and others, across npm, uv, Poetry and Pipenv), it fixed all 57 vulnerabilities with the projects' tests still passing. The six code repairs took one model round each, for about $0.12 in total ([benchmark](#benchmark)).
 
-> Status: early development. `scan` supports JavaScript (npm, pnpm, Yarn classic and Berry) Python (uv, Poetry, Pipenv, pinned `requirements.txt`) and Go (`go.mod`). `fix` supports npm (upgrade, backport, PRs), pnpm and Yarn (upgrade with LLM repair, PRs) and uv / Poetry / Pipenv (upgrade with LLM repair, PRs).
+> Status: early development. `scan` supports JavaScript (npm, pnpm, Yarn classic and Berry), Python (uv, Poetry, Pipenv, pinned `requirements.txt`) and Go (`go.mod`). `fix` supports npm (upgrade, backport, PRs), pnpm and Yarn (upgrade with LLM repair, PRs) and uv / Poetry / Pipenv (upgrade with LLM repair, PRs).
 
 ## How it works
 
