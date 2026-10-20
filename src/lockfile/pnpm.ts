@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { parse } from "yaml";
+import { parseAllDocuments } from "yaml";
 import type { Dependency } from "../types.js";
 import { splitNameVersion, toDependencies, type GraphNode, type Root } from "./graph.js";
 
@@ -35,8 +35,19 @@ function refToId(name: string, ref: string): string | undefined {
   return /^\d/.test(clean) ? `${name}@${clean}` : clean;
 }
 
+/**
+ * Recent pnpm versions write several YAML documents to pnpm-lock.yaml: one for
+ * pnpm's own environment (the pnpm binary, config dependencies) and one for the
+ * project. The project's document is the one with the most packages.
+ */
+export function pickProjectDocument(text: string): PnpmLock {
+  const docs = parseAllDocuments(text).map((d) => (d.toJS() ?? {}) as PnpmLock);
+  const size = (d: PnpmLock) => Object.keys(d.snapshots ?? d.packages ?? {}).length;
+  return docs.reduce((best, d) => (size(d) > size(best) ? d : best), docs[0] ?? {});
+}
+
 export async function readPnpmLockfile(projectDir: string): Promise<Dependency[]> {
-  const lock = parse(await readFile(path.join(projectDir, "pnpm-lock.yaml"), "utf8")) as PnpmLock;
+  const lock = pickProjectDocument(await readFile(path.join(projectDir, "pnpm-lock.yaml"), "utf8"));
   // v9 keeps the graph in `snapshots`; v6 keeps it in `packages`.
   const graph = lock.snapshots ?? lock.packages ?? {};
 

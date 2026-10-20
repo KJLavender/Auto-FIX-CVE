@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { discoverProjects, lockfileLine, readLockfile } from "../src/lockfile/index.js";
+import { pickProjectDocument } from "../src/lockfile/pnpm.js";
 import { parseYarnV1 } from "../src/lockfile/yarn.js";
 
 const FIXTURES = path.join(import.meta.dirname, "fixtures/lockfiles");
@@ -66,5 +67,31 @@ describe("project discovery", () => {
 
     const found = (await discoverProjects(root)).map((p) => `${path.relative(root, p.dir).split(path.sep).join("/") || "."}:${p.lock.kind}`);
     expect(found.sort()).toEqual([".:npm", "api:uv", "web:pnpm"]);
+  });
+});
+
+describe("pnpm multi-document lockfiles", () => {
+  it("reads the project document, not pnpm's own environment document", () => {
+    const text = [
+      "---",
+      "lockfileVersion: '9.0'",
+      "importers:",
+      "  .:",
+      "    packageManagerDependencies:",
+      "      pnpm: { specifier: 12.14.0, version: 12.14.0 }",
+      "snapshots:",
+      "  pnpm@12.14.0: {}",
+      "---",
+      "lockfileVersion: '9.0'",
+      "importers:",
+      "  .:",
+      "    dependencies:",
+      "      lodash: { specifier: ^4.17.20, version: 4.17.20 }",
+      "snapshots:",
+      "  lodash@4.17.20: {}",
+      "  minimist@1.2.5: {}",
+      "",
+    ].join("\n");
+    expect(Object.keys(pickProjectDocument(text).snapshots ?? {})).toEqual(["lodash@4.17.20", "minimist@1.2.5"]);
   });
 });
