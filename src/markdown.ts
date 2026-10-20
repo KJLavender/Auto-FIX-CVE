@@ -1,3 +1,4 @@
+import { severityBreakdown } from "./report.js";
 import type { Finding } from "./types.js";
 
 const SEVERITY_ORDER = ["CRITICAL", "HIGH", "MODERATE", "MEDIUM", "LOW"];
@@ -29,7 +30,7 @@ export function toMarkdown(projects: { lockfile: string; findings: Finding[] }[]
       continue;
     }
     const total = findings.reduce((n, f) => n + f.vulns.length, 0);
-    out.push(`${total} vulnerabilities in ${findings.length} packages.`, "");
+    out.push(`${total} vulnerabilities in ${findings.length} packages (${severityBreakdown(findings)}).`, "");
     out.push("| Package | Severity | Vulnerabilities | Reachability | Used at | Fix |");
     out.push("|---|---|---|---|---|---|");
     for (const f of findings) {

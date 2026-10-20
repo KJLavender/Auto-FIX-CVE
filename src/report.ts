@@ -59,6 +59,18 @@ const TRIAGE_LABEL: Record<Triage["verdict"], string> = {
   unclear: pc.yellow("triage: unclear —"),
 };
 
+/** e.g. `1 critical, 13 high, 15 moderate, 2 low`, most severe first; unrated ones last. */
+export function severityBreakdown(findings: Finding[]): string {
+  const order = ["CRITICAL", "HIGH", "MODERATE", "LOW", "UNRATED"];
+  const counts = new Map<string, number>();
+  for (const v of findings.flatMap((f) => f.vulns)) {
+    const raw = v.severity?.toUpperCase() ?? "UNRATED";
+    const sev = raw === "MEDIUM" ? "MODERATE" : order.includes(raw) ? raw : "UNRATED";
+    counts.set(sev, (counts.get(sev) ?? 0) + 1);
+  }
+  return order.filter((s) => counts.has(s)).map((s) => `${counts.get(s)} ${s.toLowerCase()}`).join(", ");
+}
+
 function severityColor(sev: string | undefined): (s: string) => string {
   switch (sev?.toUpperCase()) {
     case "CRITICAL":
@@ -76,7 +88,7 @@ export function formatReport(findings: Finding[], maxUsages = 10): string {
   if (findings.length === 0) return pc.green("No known vulnerabilities found.");
   const out: string[] = [];
   const vulnCount = findings.reduce((n, f) => n + f.vulns.length, 0);
-  out.push(pc.bold(`Found ${vulnCount} vulnerabilities in ${findings.length} packages\n`));
+  out.push(pc.bold(`Found ${vulnCount} vulnerabilities in ${findings.length} packages`) + pc.dim(` (${severityBreakdown(findings)})\n`));
 
   for (const f of findings) {
     const d = f.dependency;

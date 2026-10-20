@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { toMarkdown } from "../src/markdown.js";
+import { severityBreakdown } from "../src/report.js";
 import type { Finding } from "../src/types.js";
 
 const finding: Finding = {
@@ -19,7 +20,7 @@ const finding: Finding = {
 describe("toMarkdown", () => {
   it("summarizes each vulnerable package in one row", () => {
     const md = toMarkdown([{ lockfile: "package-lock.json", findings: [finding] }]);
-    expect(md).toContain("2 vulnerabilities in 1 packages.");
+    expect(md).toContain("2 vulnerabilities in 1 packages (1 high, 1 moderate).");
     expect(md).toContain("| `qs@6.7.0` (via express) | HIGH | CVE-2022-24999, GHSA-b | imported | `src/server.ts:2` | → 6.16.0 |");
   });
 
@@ -30,5 +31,17 @@ describe("toMarkdown", () => {
     ]);
     expect(md).toContain("### `web/package-lock.json`");
     expect(md).toContain("### `api/uv.lock`\n\nNo known vulnerabilities.");
+  });
+});
+
+describe("severityBreakdown", () => {
+  it("counts vulnerabilities per severity, most severe first", () => {
+    const withSev = (...sev: (string | undefined)[]): Finding => ({
+      ...finding,
+      vulns: sev.map((s, i) => ({ id: `V${i}`, aliases: [], summary: "", details: "", severity: s, fixedVersions: [], fixCommits: [] })),
+    });
+    expect(severityBreakdown([withSev("LOW", "HIGH", "MEDIUM"), withSev("CRITICAL", undefined, "HIGH")])).toBe(
+      "1 critical, 2 high, 1 moderate, 1 low, 1 unrated",
+    );
   });
 });
