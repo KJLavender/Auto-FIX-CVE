@@ -88,6 +88,7 @@ minimist@1.2.5  (direct)  not imported by your code
 
 ```bash
 node dist/cli.js scan path/to/project --triage                 # 最多判讀 10 個套件
+node dist/cli.js scan path/to/project --triage --max-cost 0.20  # 設定花費上限
 node dist/cli.js scan path/to/project --triage --fail-on likely
 ```
 
@@ -128,6 +129,7 @@ node dist/cli.js fix path/to/project --no-breaking      # 只做 semver 相容�
 node dist/cli.js fix path/to/project --prefer-backport  # 用 backport 取代破壞性升級
 node dist/cli.js fix path/to/project --no-backport      # 永不修改已安裝的套件
 node dist/cli.js fix path/to/project --yes              # 不詢問（CI 用）
+node dist/cli.js fix path/to/project --max-cost 0.50    # 模型花費超過 $0.50 就停止呼叫
 node dist/cli.js fix path/to/project --pr               # commit 到新分支並開 GitHub PR
 ```
 
@@ -159,7 +161,7 @@ Apply 2 change(s)? [y/N]
 
 - **絕不降版**：只會升到「比目前版本高、且 OSV 確認乾淨」的最小版本。
 - **先問再做**：沒有終端機可以確認時，除非加 `--yes`，否則拒絕執行。
-- **失敗就 rollback**：還原 `package.json`、lockfile、所有改過的檔案以及 `node_modules`。
+- **失敗就 rollback**：還原 `package.json`、lockfile、所有改過的檔案以及 `node_modules`；修到一半時模型無法使用，或 `--max-cost` 預算用完，也一樣會 rollback。
 - **不會卡在互動提示**：子程序沒有 stdin，並設定 `CI=1`，原本會等你按 `y` 的指令會直接失敗；`npx` 也不會自己下載套件。
 - **git 工作目錄不乾淨就拒絕執行**（可用 `--allow-dirty` 覆寫），方便事後用 `git diff` review。
 

@@ -13,7 +13,7 @@ import { detectChecks } from "./fix/context.js";
 import { run } from "./fix/exec.js";
 import { FIXABLE, managerFor } from "./fix/managers.js";
 import { fixFinding, planFinding, readInstalledVersion, verifyBaseline, type FixResult } from "./fix/upgrade.js";
-import { CliBackend, DEFAULT_MODEL } from "./llm/backend.js";
+import { BudgetBackend, CliBackend, DEFAULT_MODEL, type LlmBackend } from "./llm/backend.js";
 import { detectLockfile, detectLockfiles, discoverProjects } from "./lockfile/index.js";
 import { OsvClient } from "./osv/client.js";
 import { abandonBranch, checkPrPrerequisites, createBranch, openPr } from "./pr.js";
@@ -47,6 +47,12 @@ interface ScanCliOptions {
   failOn: FailOn;
   triage?: boolean;
   triageLimit: number;
+  maxCost?: number;
+}
+
+/** Caps model spend when a limit is given; useful on a subscription or a large repo. */
+function withBudget(backend: LlmBackend, maxCost: number | undefined): LlmBackend {
+  return maxCost === undefined ? backend : new BudgetBackend(backend, maxCost);
 }
 
 const program = new Command();
@@ -73,6 +79,7 @@ program
   )
   .option("--triage", "ask the model whether each imported vulnerable package is reachable from your call sites")
   .option("--triage-limit <n>", "packages to triage at most, per project", (v) => Number.parseInt(v, 10), 10)
+  .option("--max-cost <usd>", "stop triaging once this much has been spent on the model", (v) => Number.parseFloat(v))
   .action(async (dir: string, opts: ScanCliOptions) => {
     const root = path.resolve(dir);
     const projects = opts.recursive
@@ -81,6 +88,8 @@ program
     if (projects.length === 0) throw new Error(`No lockfile found in ${root}${opts.recursive ? " or below" : ""}.`);
 
     const log = (m: string) => console.error(pc.dim(m));
+    // One budget across all projects of a recursive scan.
+    const triageBackend = withBudget(new CliBackend(), opts.maxCost);
     const all: { project: string; lockfile: string; findings: Finding[] }[] = [];
     const logs: SarifLog[] = [];
     for (const { dir: projectDir, lock } of projects) {
@@ -88,7 +97,7 @@ program
       const ignored: IgnoredVuln[] = [];
       const findings = await scan(projectDir, { includeDev: opts.dev, lock, ignored });
       if (opts.triage) {
-        const cost = await triageFindings(projectDir, findings, new CliBackend(), opts.triageLimit, log);
+        const cost = await triageFindings(projectDir, findings, triageBackend, opts.triageLimit, log);
         log(`Triage cost (${label}): $${cost.toFixed(4)}`);
       }
       if (opts.sarif) logs.push(await toSarif(projectDir, findings, VERSION, process.cwd(), lock));
@@ -128,6 +137,7 @@ program
   .option("--check <cmd...>", "verification commands (default: typecheck/build/test scripts)")
   .option("--only <pkg...>", "only fix these packages")
   .option("--max-attempts <n>", "model repair rounds per package", (v) => Number.parseInt(v, 10), 3)
+  .option("--max-cost <usd>", "stop calling the model once this much has been spent; the fix in progress rolls back", (v) => Number.parseFloat(v))
   .option("--no-dev", "ignore dev-only dependencies")
   .option("--no-breaking", "only apply semver-compatible upgrades")
   .option("--no-backport", "never port upstream fixes into installed packages")
@@ -144,6 +154,7 @@ program
         check?: string[];
         only?: string[];
         maxAttempts: number;
+        maxCost?: number;
         dev: boolean;
         breaking: boolean;
         backport: boolean;
@@ -215,7 +226,7 @@ program
         ...policy,
         manager,
         maxAttempts: opts.maxAttempts,
-        backend: new CliBackend(),
+        backend: withBudget(new CliBackend(), opts.maxCost),
         osv: new OsvClient(),
         log,
       };

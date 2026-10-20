@@ -4,7 +4,7 @@ import path from "node:path";
 import { canBackport } from "../backport/backport.js";
 import { MANIFEST, removeBackport } from "../backport/manifest.js";
 import { patchFileFor } from "../backport/replay.js";
-import type { LlmBackend } from "../llm/backend.js";
+import type { CompletionResult, LlmBackend } from "../llm/backend.js";
 import type { OsvClient } from "../osv/client.js";
 import type { Finding } from "../types.js";
 import { compareVersions } from "../versions.js";
@@ -263,11 +263,14 @@ export async function fixFinding(projectDir: string, finding: Finding, opts: Fix
       files.set(f, await readFile(path.join(projectDir, f), "utf8"));
     }
     const prompt = buildPrompt(finding, actual, check, shapes, changelog, history, files);
-    const { output, costUsd } = await opts.backend.complete<{ explanation: string; edits: Edit[] }>({
-      system: systemPrompt(pm),
-      prompt,
-      schema: EDIT_SCHEMA,
-    });
+    let reply: CompletionResult<{ explanation: string; edits: Edit[] }>;
+    try {
+      reply = await opts.backend.complete<{ explanation: string; edits: Edit[] }>({ system: systemPrompt(pm), prompt, schema: EDIT_SCHEMA });
+    } catch (e) {
+      // An unavailable model or an exhausted budget must not leave the project half-upgraded.
+      return rollback(`model call failed: ${e instanceof Error ? e.message : e}`);
+    }
+    const { output, costUsd } = reply;
     result.costUsd += costUsd;
     result.explanations.push(output.explanation);
     if (output.edits.length === 0) return rollback(`model declined to edit: ${output.explanation}`);

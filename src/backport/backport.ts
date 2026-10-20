@@ -4,6 +4,7 @@ import { exportShape } from "../fix/context.js";
 import { applyEdits, changedSince, restoreFiles, snapshot, type Edit } from "../fix/edits.js";
 import { run, tail } from "../fix/exec.js";
 import { describeVuln, type FixOptions, type FixResult } from "../fix/upgrade.js";
+import type { CompletionResult } from "../llm/backend.js";
 import type { Finding, Vulnerability } from "../types.js";
 import { fetchFixDiff, removedLines, splitDiff } from "./github.js";
 import { locateTargets } from "./locate.js";
@@ -100,14 +101,13 @@ export async function backportFinding(projectDir: string, finding: Finding, opts
     let feedback: string | undefined;
     let proven: VerifiedVuln | undefined;
     for (let i = 0; i < POC_TRIES && !proven; i++) {
-      const { script, costUsd } = await generatePoc(opts.backend, {
-        pkg: name,
-        version,
-        vuln,
-        testDiff: splitDiff(diff).tests,
-        exportShape: shape,
-        feedback,
-      });
+      let generated: Awaited<ReturnType<typeof generatePoc>>;
+      try {
+        generated = await generatePoc(opts.backend, { pkg: name, version, vuln, testDiff: splitDiff(diff).tests, exportShape: shape, feedback });
+      } catch (e) {
+        return rollback(`model call failed: ${e instanceof Error ? e.message : e}`);
+      }
+      const { script, costUsd } = generated;
       result.costUsd += costUsd;
       await snapshot(originals, pocPath(projectDir, vuln.id));
       const poc = await writePoc(projectDir, vuln.id, script);
@@ -160,11 +160,13 @@ export async function backportFinding(projectDir: string, finding: Finding, opts
       .join("\n\n");
 
     opts.log(`  porting the fix (attempt ${result.attempts}/${opts.maxAttempts})`);
-    const { output, costUsd } = await opts.backend.complete<{ explanation: string; edits: Edit[] }>({
-      system: SYSTEM_PROMPT,
-      prompt,
-      schema: EDIT_SCHEMA,
-    });
+    let reply: CompletionResult<{ explanation: string; edits: Edit[] }>;
+    try {
+      reply = await opts.backend.complete<{ explanation: string; edits: Edit[] }>({ system: SYSTEM_PROMPT, prompt, schema: EDIT_SCHEMA });
+    } catch (e) {
+      return rollback(`model call failed: ${e instanceof Error ? e.message : e}`);
+    }
+    const { output, costUsd } = reply;
     result.costUsd += costUsd;
     result.explanations.push(output.explanation);
     if (output.edits.length === 0) return rollback(`model declined to port the fix: ${output.explanation}`);

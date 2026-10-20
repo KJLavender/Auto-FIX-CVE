@@ -88,6 +88,7 @@ minimist@1.2.5  (direct)  not imported by your code
 
 ```bash
 node dist/cli.js scan path/to/project --triage                 # judge up to 10 packages
+node dist/cli.js scan path/to/project --triage --max-cost 0.20  # with a spending cap
 node dist/cli.js scan path/to/project --triage --fail-on likely
 ```
 
@@ -128,6 +129,7 @@ node dist/cli.js fix path/to/project --no-breaking      # semver-compatible upgr
 node dist/cli.js fix path/to/project --prefer-backport  # backport instead of breaking upgrades
 node dist/cli.js fix path/to/project --no-backport      # never patch installed packages
 node dist/cli.js fix path/to/project --yes              # no prompt (CI)
+node dist/cli.js fix path/to/project --max-cost 0.50    # stop calling the model after $0.50
 node dist/cli.js fix path/to/project --pr               # commit on a new branch and open a GitHub PR
 ```
 
@@ -159,7 +161,7 @@ Safety rules:
 
 - **Never downgrades.** It only moves to the smallest version above the current one that OSV reports as clean.
 - **Asks first.** Without a terminal it refuses to run unless you pass `--yes`.
-- **Rolls back failures.** `package.json`, the lockfile, every edited file and `node_modules` are restored.
+- **Rolls back failures.** `package.json`, the lockfile, every edited file and `node_modules` are restored. This includes the model being unavailable or the `--max-cost` budget running out partway through a fix.
 - **Won't hang on prompts.** Child commands run without stdin and with `CI=1`, so anything waiting for a `y` fails instead, and `npx` never downloads packages on its own.
 - **Refuses a dirty git tree** (override with `--allow-dirty`) so the result is easy to review with `git diff`.
 

@@ -16,6 +16,30 @@ export interface LlmBackend {
   complete<T>(req: CompletionRequest): Promise<CompletionResult<T>>;
 }
 
+export class BudgetExceededError extends Error {}
+
+/**
+ * Stops calling the model once the spend reaches `limitUsd`. A call that is
+ * refused throws, so the fix in progress fails and rolls back like any other
+ * failure instead of continuing half-done.
+ */
+export class BudgetBackend implements LlmBackend {
+  spentUsd = 0;
+  constructor(
+    private readonly inner: LlmBackend,
+    private readonly limitUsd: number,
+  ) {}
+
+  async complete<T>(req: CompletionRequest): Promise<CompletionResult<T>> {
+    if (this.spentUsd >= this.limitUsd) {
+      throw new BudgetExceededError(`model budget of $${this.limitUsd.toFixed(2)} reached ($${this.spentUsd.toFixed(4)} spent)`);
+    }
+    const res = await this.inner.complete<T>(req);
+    this.spentUsd += res.costUsd;
+    return res;
+  }
+}
+
 export const DEFAULT_MODEL = process.env.AUTOFIX_MODEL ?? "claude-sonnet-5-5";
 
 interface CliResponse {
