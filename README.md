@@ -51,7 +51,10 @@ npm install                                 # also builds dist/
 node dist/cli.js scan   path/to/project     # report CVEs and where your code uses them
 node dist/cli.js fix    path/to/project     # plan, confirm, fix, verify
 node dist/cli.js verify path/to/project     # re-run backport PoCs (for CI)
+node dist/cli.js doctor                     # which package managers / tools are available
 ```
+
+`scan` only needs network access to OSV. `fix` drives the project's own package manager and the LLM CLI; `doctor` lists what is installed and what each tool enables.
 
 ### Scan
 

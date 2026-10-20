@@ -8,6 +8,7 @@ import pc from "picocolors";
 import { backportFinding, canBackport } from "./backport/backport.js";
 import { appliedBackports, MANIFEST, readManifest, ruleActive } from "./backport/manifest.js";
 import { runPoc } from "./backport/poc.js";
+import { checkTools } from "./doctor.js";
 import { detectChecks } from "./fix/context.js";
 import { run } from "./fix/exec.js";
 import { FIXABLE, managerFor } from "./fix/managers.js";
@@ -290,6 +291,20 @@ program
       }
     }
     process.exitCode = bad ? 1 : 0;
+  });
+
+program
+  .command("doctor")
+  .description("Check which external tools are available and what they enable")
+  .action(async () => {
+    const osv = await fetch("https://api.osv.dev/v1/vulns/GHSA-35jh-r3h4-6jhm").then((r) => r.ok).catch(() => false);
+    console.log(`${osv ? pc.green("ok     ") : pc.red("missing")}  ${"OSV API".padEnd(8)}  ${pc.dim("scan (required)")}`);
+    for (const t of await checkTools()) {
+      const status = t.ok ? pc.green("ok     ") : pc.yellow("missing");
+      const hint = !t.ok && t.env ? pc.dim(` (set ${t.env} to use another command)`) : "";
+      console.log(`${status}  ${t.name.padEnd(8)}  ${pc.dim(t.ok ? `${t.detail} → ${t.enables}` : t.enables)}${hint}`);
+    }
+    process.exitCode = osv ? 0 : 1;
   });
 
 program.parseAsync().catch((err: unknown) => {

@@ -51,7 +51,10 @@ npm install                                 # 同時會 build 出 dist/
 node dist/cli.js scan   path/to/project     # 回報 CVE 與程式碼中的使用位置
 node dist/cli.js fix    path/to/project     # 計畫 → 確認 → 修復 → 驗證
 node dist/cli.js verify path/to/project     # 重跑 backport 的 PoC（CI 用）
+node dist/cli.js doctor                     # 檢查有哪些套件管理器 / 工具可用
 ```
+
+`scan` 只需要能連到 OSV。`fix` 會呼叫專案本身的套件管理器和 LLM CLI；`doctor` 會列出已安裝的工具，以及每個工具對應的功能。
 
 ### 掃描
 
