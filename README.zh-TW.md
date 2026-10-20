@@ -83,6 +83,21 @@ idna@2.10  (transitive via requests)  imported
 
 只有在程式碼本身就能排除所有 advisory 時，才允許判成 `not reachable`；取決於執行環境或輸入來源的情況一律是 `unclear`。搭配 `--fail-on likely` 時，`reachable` 會讓 build 失敗，`not reachable` 不會，`unclear` 則退回名稱比對的啟發式判斷。SARIF 中 `not reachable` 的警報會降為 note。判讀結果每次執行可能略有差異，請把它當成 review 的輔助。Python 範例的成本：五個套件約 $0.15。
 
+### 接受的風險
+
+把決定不修的漏洞記錄在 `.autofix-cve.json`。每條規則都必須附上理由，也可以設定到期日，到期後漏洞會重新出現，讓團隊再評估一次：
+
+```json
+{
+  "backports": [],
+  "ignore": [
+    { "id": "CVE-2021-44906", "package": "minimist", "reason": "only parses our own build script arguments", "until": "2027-01-01" }
+  ]
+}
+```
+
+`id` 可以填 GHSA、PYSEC 或 CVE 編號。被忽略的漏洞不會出現在結果、`--fail-on`、SARIF 和 `fix`（包含升級版本的搜尋）中，`scan` 則會列出它們和各自的理由。沒有理由或已經超過 `until` 日期的規則不會生效，`scan` 也會提示。
+
 ### 修復
 
 ```bash

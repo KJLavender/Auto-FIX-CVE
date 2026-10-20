@@ -1,15 +1,25 @@
-import { appliedBackports, mitigatedIds, readManifest } from "./backport/manifest.js";
+import { appliedBackports, mitigatedIds, readManifest, ruleActive } from "./backport/manifest.js";
 import { findUsages } from "./impact/analyze.js";
 import { findPythonUsages } from "./impact/python.js";
 import { readLockfile, type LockRef } from "./lockfile/index.js";
 import { dedupeVulns, OsvClient } from "./osv/client.js";
 import type { Finding, Reachability, Usage, Vulnerability } from "./types.js";
-import { isBreakingUpgrade } from "./versions.js";
+import { isBreakingUpgrade, normalizeName } from "./versions.js";
 
 export interface ScanOptions {
   includeDev: boolean;
   /** Which lockfile to scan when the directory has several; defaults to the first found. */
   lock?: LockRef;
+  /** Receives every vulnerability suppressed by an ignore rule. */
+  ignored?: IgnoredVuln[];
+}
+
+export interface IgnoredVuln {
+  package: string;
+  version: string;
+  id: string;
+  reason: string;
+  until?: string;
 }
 
 const SEVERITY_RANK: Record<string, number> = { CRITICAL: 4, HIGH: 3, MODERATE: 2, MEDIUM: 2, LOW: 1 };
@@ -103,9 +113,20 @@ export async function scan(projectDir: string, options: ScanOptions): Promise<Fi
   const wanted = [...new Set([...vulnerable.map((v) => v.dep.name), ...introducers])];
   const usages = lock.deps[0]?.ecosystem === "PyPI" ? await findPythonUsages(projectDir, wanted) : await findUsages(projectDir, wanted);
 
-  const findings = await mapLimit(vulnerable, CONCURRENCY, async ({ dep, ids }): Promise<Finding> => {
-    const vulns = dedupeVulns(await osv.getVulns(ids, dep.name, dep.ecosystem));
-    const safe = await osv.findSafeVersion(dep.name, dep.version, vulns, dep.ecosystem);
+  const rules = (manifest.ignore ?? []).filter((r) => ruleActive(r));
+  const resolved = await mapLimit(vulnerable, CONCURRENCY, async ({ dep, ids }): Promise<Finding | undefined> => {
+    // Accepted risks are dropped before anything else, including the upgrade search.
+    const accepted = new Set<string>();
+    const vulns = dedupeVulns(await osv.getVulns(ids, dep.name, dep.ecosystem)).filter((v) => {
+      const keys = [v.id, ...v.aliases];
+      const rule = rules.find((r) => keys.includes(r.id) && (!r.package || normalizeName(dep.ecosystem, r.package) === dep.name));
+      if (!rule) return true;
+      keys.forEach((k) => accepted.add(k));
+      options.ignored?.push({ package: dep.name, version: dep.version, id: v.id, reason: rule.reason, until: rule.until });
+      return false;
+    });
+    if (vulns.length === 0) return undefined;
+    const safe = await osv.findSafeVersion(dep.name, dep.version, vulns, dep.ecosystem, accepted);
     const safeVersion = safe.version;
     // The search may name a duplicate record; report each unfixable vulnerability once, by its primary id.
     const unfixableIds = new Set(safe.unfixable);
@@ -134,6 +155,7 @@ export async function scan(projectDir: string, options: ScanOptions): Promise<Fi
     };
   });
 
+  const findings = resolved.filter((f): f is Finding => f !== undefined);
   return findings.sort(
     (a, b) =>
       REACH_RANK[b.reachability] - REACH_RANK[a.reachability] ||

@@ -84,3 +84,12 @@ describe("dedupeVulns", () => {
     expect(dedupeVulns([a, b, bridge]).map((v) => v.id)).toEqual(["GHSA-c"]);
   });
 });
+
+describe("findSafeVersion with accepted risks", () => {
+  it("does not upgrade further just to fix an ignored vulnerability", async () => {
+    fakeOsv({ "1.1.0": ["IGNORED"], "2.0.0": [] }, { IGNORED: ["2.0.0"] });
+    const osv = new OsvClient();
+    const safe = await osv.findSafeVersion("pkg", "1.0.0", [vuln("A", ["1.1.0"])], "npm", new Set(["IGNORED"]));
+    expect(safe.version).toBe("1.1.0");
+  });
+});

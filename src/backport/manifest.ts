@@ -16,14 +16,32 @@ export interface BackportRecord {
   date: string;
 }
 
+/** An accepted risk: a vulnerability the team decided not to fix, with a reason and an optional expiry. */
+export interface IgnoreRule {
+  /** Vulnerability id or alias, e.g. `GHSA-xxxx` or `CVE-2021-1234`. */
+  id: string;
+  /** Limit the rule to one package; omitted means any package. */
+  package?: string;
+  reason: string;
+  /** `YYYY-MM-DD`; after this day the vulnerability is reported again. */
+  until?: string;
+}
+
 export interface Manifest {
   backports: BackportRecord[];
+  ignore?: IgnoreRule[];
+}
+
+/** Whether a rule still applies on `today` (rules without a reason never apply). */
+export function ruleActive(rule: IgnoreRule, today = new Date().toISOString().slice(0, 10)): boolean {
+  return Boolean(rule.reason?.trim()) && (!rule.until || rule.until >= today);
 }
 
 export async function readManifest(projectDir: string): Promise<Manifest> {
   const file = path.join(projectDir, MANIFEST);
   if (!existsSync(file)) return { backports: [] };
-  return JSON.parse(await readFile(file, "utf8")) as Manifest;
+  const manifest = JSON.parse(await readFile(file, "utf8")) as Manifest;
+  return { ...manifest, backports: manifest.backports ?? [] };
 }
 
 /** Records a backport, merging with an earlier one for the same version instead of replacing it. */

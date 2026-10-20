@@ -5,7 +5,7 @@ import { createInterface } from "node:readline/promises";
 import { Command, Option } from "commander";
 import pc from "picocolors";
 import { backportFinding, canBackport } from "./backport/backport.js";
-import { appliedBackports, MANIFEST, readManifest } from "./backport/manifest.js";
+import { appliedBackports, MANIFEST, readManifest, ruleActive } from "./backport/manifest.js";
 import { runPoc } from "./backport/poc.js";
 import { detectChecks } from "./fix/context.js";
 import { run } from "./fix/exec.js";
@@ -19,7 +19,7 @@ import { formatFixSummary, formatPlan, formatReport } from "./report.js";
 import { toMarkdown } from "./markdown.js";
 import { mergeSarif, toSarif, type SarifLog } from "./sarif.js";
 import { triageFindings } from "./triage.js";
-import { fails, scan, type FailOn } from "./scan.js";
+import { fails, scan, type FailOn, type IgnoredVuln } from "./scan.js";
 import type { Finding } from "./types.js";
 
 const VERSION = "0.1.0";
@@ -82,7 +82,8 @@ program
     const logs: SarifLog[] = [];
     for (const { dir: projectDir, lock } of projects) {
       const label = path.relative(root, path.join(projectDir, lock.file)).split(path.sep).join("/");
-      const findings = await scan(projectDir, { includeDev: opts.dev, lock });
+      const ignored: IgnoredVuln[] = [];
+      const findings = await scan(projectDir, { includeDev: opts.dev, lock, ignored });
       if (opts.triage) {
         const cost = await triageFindings(projectDir, findings, new CliBackend(), opts.triageLimit, log);
         log(`Triage cost (${label}): $${cost.toFixed(4)}`);
@@ -100,6 +101,13 @@ program
           const status = applied.includes(b) ? pc.green("backported") : pc.red("backport NOT applied (run npm install)");
           console.log(`${status}  ${b.package}@${b.version}  ${pc.dim(b.vulns.join(", "))}`);
         }
+      }
+      for (const i of ignored) {
+        console.log(`${pc.dim("ignored")}  ${i.package}@${i.version} ${i.id}  ${pc.dim(`${i.reason}${i.until ? ` (until ${i.until})` : ""}`)}`);
+      }
+      for (const r of (manifest.ignore ?? []).filter((r) => !ruleActive(r))) {
+        const why = r.reason?.trim() ? `expired on ${r.until}` : "has no reason";
+        console.log(pc.yellow(`ignore rule for ${r.id}${r.package ? ` (${r.package})` : ""} ${why}; the vulnerability is reported again`));
       }
     }
 

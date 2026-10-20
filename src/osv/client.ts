@@ -92,6 +92,8 @@ export class OsvClient {
     current: string,
     vulns: Vulnerability[],
     ecosystem: Ecosystem = "npm",
+    /** Ids (and aliases) of accepted risks that should not drive the upgrade. */
+    accepted: Set<string> = new Set(),
   ): Promise<SafeVersion> {
     const unfixable = new Set<string>();
     let candidate = current;
@@ -105,7 +107,7 @@ export class OsvClient {
       }
       if (candidate === current) return { unfixable: [...unfixable] };
       const [ids] = await this.queryBatch([{ name, version: candidate, ecosystem }]);
-      const remaining = ids.filter((id) => !unfixable.has(id));
+      const remaining = ids.filter((id) => !unfixable.has(id) && !accepted.has(id));
       if (remaining.length === 0) return { version: candidate, unfixable: [...unfixable] };
       pending = await this.getVulns(remaining, name, ecosystem);
     }

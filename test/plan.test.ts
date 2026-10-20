@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ruleActive } from "../src/backport/manifest.js";
 import { planFinding } from "../src/fix/upgrade.js";
 import type { Finding } from "../src/types.js";
 
@@ -55,5 +56,14 @@ describe("planFinding", () => {
 
   it("allows non-breaking upgrades without checks", () => {
     expect(planFinding(finding(), { ...policy, checks: [] }).action).toBe("upgrade");
+  });
+});
+
+describe("ignore rules", () => {
+  it("apply only with a reason and before their expiry date", () => {
+    expect(ruleActive({ id: "CVE-1", reason: "dev-only script", until: "2026-12-31" }, "2026-10-20")).toBe(true);
+    expect(ruleActive({ id: "CVE-1", reason: "dev-only script", until: "2026-10-19" }, "2026-10-20")).toBe(false);
+    expect(ruleActive({ id: "CVE-1", reason: "dev-only script" }, "2026-10-20")).toBe(true);
+    expect(ruleActive({ id: "CVE-1", reason: "  " }, "2026-10-20")).toBe(false);
   });
 });

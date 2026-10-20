@@ -83,6 +83,21 @@ idna@2.10  (transitive via requests)  imported
 
 `not reachable` is only allowed when the code itself rules out every advisory; anything that depends on the environment or on where an input comes from is `unclear`. With `--fail-on likely`, a `reachable` verdict fails the build, `not reachable` does not, and `unclear` falls back to the name-matching heuristic. In SARIF, `not reachable` alerts are downgraded to notes. Verdicts can differ between runs, so treat them as a review aid. Cost on the Python example: about $0.15 for five packages.
 
+### Accepted risks
+
+Record vulnerabilities you decided not to fix in `.autofix-cve.json`. A reason is required, and an optional expiry date makes the vulnerability come back for review:
+
+```json
+{
+  "backports": [],
+  "ignore": [
+    { "id": "CVE-2021-44906", "package": "minimist", "reason": "only parses our own build script arguments", "until": "2027-01-01" }
+  ]
+}
+```
+
+`id` can be the GHSA, PYSEC or CVE id. Ignored vulnerabilities are left out of findings, `--fail-on`, SARIF and `fix` (including the upgrade search), and `scan` lists them with their reasons. A rule without a reason, or past its `until` date, is not applied and `scan` says so.
+
 ### Fix
 
 ```bash
