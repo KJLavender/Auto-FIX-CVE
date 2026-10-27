@@ -54,6 +54,7 @@ interface ScanCliOptions {
   minSeverity?: Severity;
   updateBaseline?: boolean;
   failOn: FailOn;
+  epssThreshold?: number;
   triage?: boolean;
   triageLimit: number;
   maxCost?: number;
@@ -66,6 +67,13 @@ interface ScanCliOptions {
 /** Caps model spend when a limit is given; useful on a subscription or a large repo. */
 function withBudget(backend: LlmBackend, maxCost: number | undefined): LlmBackend {
   return maxCost === undefined ? backend : new BudgetBackend(backend, maxCost);
+}
+
+/** A probability between 0 and 1, for --epss-threshold. */
+function parseProbability(value: string): number {
+  const p = Number.parseFloat(value);
+  if (!(p >= 0 && p <= 1)) throw new Error(`--epss-threshold expects a number between 0 and 1, got ${value}`);
+  return p;
 }
 
 const program = new Command();
@@ -103,6 +111,7 @@ program
       .choices(["any", "likely", "high", "risk", "none"])
       .default("any"),
   )
+  .option("--epss-threshold <p>", "with --fail-on risk: also fail on vulnerabilities whose EPSS score is at least this (0-1, e.g. 0.1)", parseProbability)
   .option("--triage", "ask the model whether each imported vulnerable package is reachable from your call sites")
   .option("--triage-limit <n>", "packages to triage at most, per project", (v) => Number.parseInt(v, 10), 10)
   .option("--max-cost <usd>", "stop triaging once this much has been spent on the model", (v) => Number.parseFloat(v))
@@ -208,7 +217,7 @@ program
       console.error(pc.dim(`Baseline: ${known} known, ${fresh.reduce((n, f) => n + f.vulns.length, 0)} new.`));
       gate = fresh;
     }
-    process.exitCode = gate.some((f) => fails(f, opts.failOn)) ? 1 : 0;
+    process.exitCode = gate.some((f) => fails(f, opts.failOn, opts.epssThreshold)) ? 1 : 0;
   });
 
 program
@@ -379,7 +388,8 @@ program
       .choices(["any", "high", "risk", "none"])
       .default("none"),
   )
-  .action(async (dir: string, opts: { sbom?: string[]; dev: boolean; json?: boolean; failOn: FailOn }) => {
+  .option("--epss-threshold <p>", "with --fail-on risk: also fail on vulnerabilities whose EPSS score is at least this (0-1, e.g. 0.1)", parseProbability)
+  .action(async (dir: string, opts: { sbom?: string[]; dev: boolean; json?: boolean; failOn: FailOn; epssThreshold?: number }) => {
     const root = path.resolve(dir);
     const rel = (p: string) => path.relative(root, p).split(path.sep).join("/") || ".";
     const log = (m: string) => console.error(pc.dim(m));
@@ -433,7 +443,8 @@ program
       console.log(pc.dim("\nDetails: `scan -r`, `scan --sbom` and `runtime` show each source in full; `fix` and `runtime --fix` apply the fixes."));
     }
     const failing =
-      packages.some((p) => p.findings.some((f) => fails(f, opts.failOn))) || runtimes.some((r) => runtimeFails(r, opts.failOn));
+      packages.some((p) => p.findings.some((f) => fails(f, opts.failOn, opts.epssThreshold))) ||
+      runtimes.some((r) => runtimeFails(r, opts.failOn, opts.epssThreshold));
     process.exitCode = failing ? 1 : 0;
   });
 
@@ -448,7 +459,8 @@ program
       .choices(["any", "high", "risk", "none"])
       .default("any"),
   )
-  .action(async (dir: string, opts: { json?: boolean; fix?: boolean; failOn: FailOn }) => {
+  .option("--epss-threshold <p>", "with --fail-on risk: also fail on vulnerabilities whose EPSS score is at least this (0-1, e.g. 0.1)", parseProbability)
+  .action(async (dir: string, opts: { json?: boolean; fix?: boolean; failOn: FailOn; epssThreshold?: number }) => {
     const root = path.resolve(dir);
     const findings = await scanRuntimes(root);
     if (opts.json) console.log(JSON.stringify(findings, null, 2));
@@ -460,7 +472,7 @@ program
       );
     }
     // After --fix the edits still need a rebuild, so the exit code reflects what is deployed now.
-    process.exitCode = findings.some((f) => runtimeFails(f, opts.failOn)) ? 1 : 0;
+    process.exitCode = findings.some((f) => runtimeFails(f, opts.failOn, opts.epssThreshold)) ? 1 : 0;
   });
 
 program

@@ -28,6 +28,8 @@ export const endpoints = {
       "{channel}",
       channel,
     ),
+  /** FIRST's EPSS API (scores fetched per CVE), a local JSON file in the API's shape, or `off`. */
+  epss: () => process.env.AUTOFIX_EPSS_URL || "https://api.first.org/data/v1/epss",
   /** CISA's Known Exploited Vulnerabilities catalog: a URL, a local file, or `off`. */
   kev: () => process.env.AUTOFIX_KEV_URL || "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json",
 };

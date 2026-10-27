@@ -118,6 +118,8 @@ Severity alone blocks too much: a build can be held up for weeks by a HIGH advis
 
 Known-exploited vulnerabilities are listed first and tagged `KNOWN EXPLOITED` in the report, Markdown and SARIF (where they are always errors). Everything else is still reported, so you can fix it on a schedule instead of on the release path. The catalog is downloaded once per run; see [Mirrors and offline use](#mirrors-and-offline-use) to use a local copy.
 
+Each CVE also gets its [EPSS](https://www.first.org/epss/) score, FIRST's estimate of the probability that it is exploited in the next 30 days. Scores of 1% and up appear next to the advisory (`EPSS 36%`) and in Markdown and SARIF, and findings with the same reachability and severity are ordered by it. `--epss-threshold 0.1` makes `--fail-on risk` also fail on anything scored at 10% or more, which catches a freshly published bug before it reaches the KEV catalog: Node2Shell scored 36% (98th percentile) five days after release.
+
 #### Deployed images (SBOM)
 
 ```bash
@@ -385,6 +387,7 @@ Every outside service can be pointed at a mirror, for networks that only reach t
 | `AUTOFIX_PYPI_URL` | `https://pypi.org/pypi` | PyPI JSON API, for skipping yanked releases |
 | `AUTOFIX_CRATES_INDEX` | `https://index.crates.io` | crates.io sparse index |
 | `AUTOFIX_GITHUB_API` | `https://api.github.com` | GitHub API (GitHub Enterprise), for backport diffs |
+| `AUTOFIX_EPSS_URL` | `https://api.first.org/data/v1/epss` | EPSS scores: the API, a local JSON file in its shape, or `off` |
 | `AUTOFIX_KEV_URL` | CISA's feed | KEV catalog: a URL, a local JSON file, or `off` |
 | `AUTOFIX_NODE_RELEASES_URL` | `https://nodejs.org/dist/index.json` | Node.js releases (`runtime`) |
 | `AUTOFIX_NODE_VULNS_URL` | Node.js security-wg `vuln/core/index.json` | Node.js advisory index (`runtime`) |

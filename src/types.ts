@@ -38,6 +38,8 @@ export interface Vulnerability {
    * Not aliases (one DSA covers several CVEs), so records are not merged on them.
    */
   upstream?: string[];
+  /** FIRST EPSS: probability of exploitation in the next 30 days, and its percentile. */
+  epss?: { score: number; percentile: number };
 }
 
 export interface Usage {

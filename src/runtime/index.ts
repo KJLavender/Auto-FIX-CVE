@@ -2,6 +2,7 @@ import { readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import pc from "picocolors";
 import semver from "semver";
+import { epssLabel, markEpss } from "../epss.js";
 import { loadKev, markExploited } from "../kev.js";
 import { maxSeverity, type FailOn } from "../scan.js";
 import { parseDockerfile } from "./dockerfile.js";
@@ -60,6 +61,7 @@ export async function scanRuntimes(root: string, today = new Date()): Promise<Ru
       const status = source && (await source.check(from.repository, from.tag));
       if (!status) continue;
       markExploited(status.vulns, await kev);
+      await markEpss(status.vulns);
       const needed = !status.version || status.vulns.length > 0;
       const finding: RuntimeFinding = {
         file: path.relative(root, file).split(path.sep).join("/"),
@@ -96,12 +98,18 @@ export async function scanRuntimes(root: string, today = new Date()): Promise<Ru
 }
 
 /** Whether a runtime finding fails `runtime --fail-on <level>`. Only images that ship count. */
-export function runtimeFails(f: RuntimeFinding, failOn: FailOn): boolean {
+export function runtimeFails(f: RuntimeFinding, failOn: FailOn, epssThreshold?: number): boolean {
   if (!f.shipped || failOn === "none") return false;
   if (failOn === "any" || failOn === "likely") return f.status.vulns.length > 0 || (f.eolDays !== undefined && f.eolDays < 0);
   // The runtime runs every request, so nothing is unreachable; and release notes rarely rate
   // their CVEs, so an unrated one counts as serious rather than being waved through.
-  return f.status.vulns.some((v) => v.knownExploited || maxSeverity([v]) === 0 || maxSeverity([v]) >= 3);
+  return f.status.vulns.some(
+    (v) =>
+      v.knownExploited ||
+      maxSeverity([v]) === 0 ||
+      maxSeverity([v]) >= 3 ||
+      (epssThreshold !== undefined && (v.epss?.score ?? 0) >= epssThreshold),
+  );
 }
 
 /** Writes the pinning edits; returns the files changed. */
@@ -143,7 +151,8 @@ export function formatRuntimeReport(findings: RuntimeFinding[], maxVulns = 8): s
       const cves = v.aliases.filter((a) => a.startsWith("CVE-") && a !== v.id);
       const kev = v.knownExploited ? ` ${pc.bgRed(pc.white(" KNOWN EXPLOITED "))}` : "";
       const sev = v.severity ? `[${v.severity}]` : "[UNRATED]";
-      out.push(`  ${sev}${kev} ${v.id}${cves.length ? ` (${cves.join(", ")})` : ""}  ${v.summary}`);
+      const epss = epssLabel(v) ? ` ${pc.magenta(epssLabel(v))}` : "";
+      out.push(`  ${sev}${kev}${epss} ${v.id}${cves.length ? ` (${cves.join(", ")})` : ""}  ${v.summary}`);
     }
     if (s.vulns.length > shown.length) out.push(pc.dim(`  … ${s.vulns.length - shown.length} more, all fixed by the pin below`));
     if (f.edit) out.push(`  ${pc.green("→ pin")} ${f.edit.to.trim()}  ${pc.dim(`(newest ${s.line}.x: ${s.latest}, ${s.latestDate})`)}`);

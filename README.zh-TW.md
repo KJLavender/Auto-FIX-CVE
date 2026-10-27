@@ -118,6 +118,8 @@ node dist/cli.js scan path/to/project --fail-on risk
 
 已知被利用的漏洞會排在最前面，並在報告、Markdown 和 SARIF 中標上 `KNOWN EXPLOITED`（SARIF 一律為 error）。其他漏洞照樣會列出，可以排進修補時程，而不用卡在上線流程上。清單每次執行下載一次；要用本機的副本請見[鏡像與離線使用](#鏡像與離線使用)。
 
+每個 CVE 也會帶上 [EPSS](https://www.first.org/epss/) 分數，也就是 FIRST 估計它在未來 30 天內被利用的機率。1% 以上的分數會顯示在 advisory 旁（`EPSS 36%`），也會寫進 Markdown 與 SARIF；可達性與嚴重度相同的結果會再依它排序。`--epss-threshold 0.1` 讓 `--fail-on risk` 也對 10% 以上的漏洞失敗，可以在剛公布的 bug 進入 KEV 清單之前就抓到：Node2Shell 發布五天後的分數是 36%（第 98 百分位）。
+
 #### 已部署的映像（SBOM）
 
 ```bash
@@ -385,6 +387,7 @@ Advisory 內文和上游 diff 對 LLM 來說都是不可信的輸入，所以會
 | `AUTOFIX_PYPI_URL` | `https://pypi.org/pypi` | PyPI JSON API，用來排除已 yank 的版本 |
 | `AUTOFIX_CRATES_INDEX` | `https://index.crates.io` | crates.io sparse index |
 | `AUTOFIX_GITHUB_API` | `https://api.github.com` | GitHub API（GitHub Enterprise），backport 抓 diff 用 |
+| `AUTOFIX_EPSS_URL` | `https://api.first.org/data/v1/epss` | EPSS 分數：API、同格式的本機 JSON 檔，或 `off` |
 | `AUTOFIX_KEV_URL` | CISA 官方 feed | KEV 清單：URL、本機 JSON 檔，或 `off` |
 | `AUTOFIX_NODE_RELEASES_URL` | `https://nodejs.org/dist/index.json` | Node.js 發行清單（`runtime`） |
 | `AUTOFIX_NODE_VULNS_URL` | Node.js security-wg 的 `vuln/core/index.json` | Node.js 漏洞索引（`runtime`） |

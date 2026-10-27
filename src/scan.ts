@@ -1,6 +1,7 @@
 import { appliedBackports, mitigatedIds, readManifest, ruleActive } from "./backport/manifest.js";
 import { findUsages } from "./impact/analyze.js";
 import { findCsharpUsages } from "./impact/csharp.js";
+import { markEpss, maxEpss } from "./epss.js";
 import { loadKev, markExploited } from "./kev.js";
 import { findGoUsages } from "./impact/go.js";
 import { findPythonUsages } from "./impact/python.js";
@@ -92,8 +93,11 @@ function reached(f: Finding): boolean {
   return f.reachability === "likely";
 }
 
-/** Whether a finding should fail `scan --fail-on <level>`. */
-export function fails(f: Finding, failOn: FailOn): boolean {
+/**
+ * Whether a finding should fail `scan --fail-on <level>`. With `epssThreshold`,
+ * `risk` also fails on a vulnerability that EPSS scores at or above it.
+ */
+export function fails(f: Finding, failOn: FailOn, epssThreshold?: number): boolean {
   switch (failOn) {
     case "any":
       return true;
@@ -101,7 +105,11 @@ export function fails(f: Finding, failOn: FailOn): boolean {
       return reached(f);
     case "risk":
       // Attacked in the wild, or high/critical and reached by this code.
-      return f.vulns.some((v) => v.knownExploited) || (reached(f) && maxSeverity(f.vulns) >= 3);
+      return (
+        f.vulns.some((v) => v.knownExploited) ||
+        (reached(f) && maxSeverity(f.vulns) >= 3) ||
+        (epssThreshold !== undefined && maxEpss(f.vulns) >= epssThreshold)
+      );
     case "high":
       return maxSeverity(f.vulns) >= 3;
     case "none":
@@ -218,11 +226,14 @@ export async function scanDependencies(
   });
 
   const findings = resolved.filter((f): f is Finding => f !== undefined);
+  // One batched lookup for every CVE found.
+  await markEpss(findings.flatMap((f) => f.vulns));
   return findings.sort(
     (a, b) =>
       Number(b.vulns.some((v) => v.knownExploited)) - Number(a.vulns.some((v) => v.knownExploited)) ||
       REACH_RANK[b.reachability] - REACH_RANK[a.reachability] ||
       maxSeverity(b.vulns) - maxSeverity(a.vulns) ||
+      maxEpss(b.vulns) - maxEpss(a.vulns) ||
       a.dependency.name.localeCompare(b.dependency.name),
   );
 }

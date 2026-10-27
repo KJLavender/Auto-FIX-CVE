@@ -86,6 +86,7 @@ export async function toSarif(
           properties: {
             tags: ["security", "dependency", ...(cve ? [cve] : []), ...(v.knownExploited ? ["known-exploited"] : [])],
             "security-severity": SECURITY_SEVERITY[sev] ?? "5.0",
+            ...(v.epss ? { epss: v.epss.score, "epss-percentile": v.epss.percentile } : {}),
           },
         });
       }

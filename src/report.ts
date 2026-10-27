@@ -1,4 +1,5 @@
 import pc from "picocolors";
+import { epssLabel } from "./epss.js";
 import type { FixResult, FixStatus, PlanStep } from "./fix/upgrade.js";
 import type { Finding, Reachability, Triage } from "./types.js";
 
@@ -111,7 +112,8 @@ export function formatReport(findings: Finding[], maxUsages = 10, codeAnalysed =
       const cves = v.aliases.filter((a) => a.startsWith("CVE-"));
       const sev = severityColor(v.severity)(`[${v.severity ?? "UNKNOWN"}]`);
       const kev = v.knownExploited ? ` ${pc.bgRed(pc.white(" KNOWN EXPLOITED "))}` : "";
-      out.push(`  ${sev}${kev} ${v.id}${cves.length ? ` (${cves.join(", ")})` : ""}  ${v.summary}`);
+      const epss = epssLabel(v) ? ` ${pc.magenta(epssLabel(v))}` : "";
+      out.push(`  ${sev}${kev}${epss} ${v.id}${cves.length ? ` (${cves.join(", ")})` : ""}  ${v.summary}`);
       for (const c of v.fixCommits.slice(0, 2)) out.push(pc.dim(`      fix: ${c}`));
     }
 
