@@ -245,7 +245,7 @@ Backport 會在你的 repo 加入這些檔案：
 
 #### Pull request
 
-加上 `--pr` 時，修補會 commit 到新的 `autofix-cve/<timestamp>` 分支、push，再開成 pull request：`origin` 在 GitHub 時用 `gh`，其他主機一律當成 GitLab（含自架），**透過 REST API 開 merge request**。開始修復之前會先檢查前置條件：必須有 checkout 的分支、`origin` remote，以及已登入的 `gh` 或放在 `AUTOFIX_GITLAB_TOKEN`（或 `GITLAB_TOKEN`）中、具 `api` 權限的 GitLab token。API 位址取自 remote；在 GitLab CI 裡用 `CI_API_V4_URL`，也可用 `AUTOFIX_GITLAB_API` 指定。PR 內容會列出每個修好的 CVE 及其證據（通過的驗證指令、PoC 判定、OSV 確認）、模型對每處程式碼修改的說明、沒修好的項目與原因，以及重新掃描的結果。如果什麼都沒修好，就刪除這個分支。
+加上 `--pr` 時，修補會 commit 到新的 `autofix-cve/<timestamp>` 分支、push，再開成 pull request：`origin` 在 GitHub 時用 `gh`，其他主機一律當成 GitLab（含自架），**透過 REST API 開 merge request**。開始修復之前會先檢查前置條件：必須有 checkout 的分支、`origin` remote，以及已登入的 `gh` 或放在 `AUTOFIX_GITLAB_TOKEN` 中、具 `api` 權限的 GitLab token。通用的 `GITLAB_TOKEN` 也可以用，但只會送往它所屬的主機（跟 `glab` 一樣看 `GITLAB_HOST`，未設定則為 gitlab.com），避免某個站台的 token 被送到另一個站台。API 位址取自 remote；在 GitLab CI 裡用 `CI_API_V4_URL`，也可用 `AUTOFIX_GITLAB_API` 指定。PR 內容會列出每個修好的 CVE 及其證據（通過的驗證指令、PoC 判定、OSV 確認）、模型對每處程式碼修改的說明、沒修好的項目與原因，以及重新掃描的結果。如果什麼都沒修好，就刪除這個分支。
 
 ### Runtime（Dockerfile）
 

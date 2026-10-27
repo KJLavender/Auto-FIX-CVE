@@ -20,8 +20,13 @@ export async function checkPrPrerequisites(projectDir: string): Promise<string> 
   if (!remote) throw new Error("--pr needs an `origin` remote.");
   if (!/github\.com/.test(remote)) {
     // Anything else is treated as GitLab (self-hosted included), opened through its REST API.
-    if (!gitlabProject(remote)) throw new Error(`--pr cannot tell which project \`origin\` (${remote}) is.`);
-    if (!gitlabToken()) throw new Error("--pr on GitLab needs a token with `api` scope in AUTOFIX_GITLAB_TOKEN or GITLAB_TOKEN.");
+    const project = gitlabProject(remote);
+    if (!project) throw new Error(`--pr cannot tell which project \`origin\` (${remote}) is.`);
+    if (!gitlabToken(project)) {
+      throw new Error(
+        `--pr on GitLab needs a token with \`api\` scope for ${project.api}: set AUTOFIX_GITLAB_TOKEN (or GITLAB_TOKEN together with GITLAB_HOST).`,
+      );
+    }
     return base;
   }
   const auth = await runFile("gh", ["auth", "status"], projectDir, 30_000).catch(() => undefined);
@@ -110,7 +115,7 @@ export async function openPr(
   const remote = await git(projectDir, ["remote", "get-url", "origin"]);
   const gitlab = /github\.com/.test(remote) ? undefined : gitlabProject(remote);
   if (gitlab) {
-    return createMergeRequest(gitlab, gitlabToken() ?? "", { source: branch, target: base, title, description: prBody(results, remaining) });
+    return createMergeRequest(gitlab, gitlabToken(gitlab) ?? "", { source: branch, target: base, title, description: prBody(results, remaining) });
   }
 
   const bodyFile = path.join(await mkdtemp(path.join(tmpdir(), "autofix-pr-")), "body.md");

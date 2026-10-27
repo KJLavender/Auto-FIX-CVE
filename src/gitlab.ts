@@ -38,8 +38,24 @@ export function gitlabProject(remote: string): GitlabProject | undefined {
   return { api, path: projectPath };
 }
 
-export function gitlabToken(): string | undefined {
-  return process.env.AUTOFIX_GITLAB_TOKEN || process.env.GITLAB_TOKEN || undefined;
+/**
+ * The token to send to `project`'s API. `AUTOFIX_GITLAB_TOKEN` is meant for this
+ * tool and always used. The generic `GITLAB_TOKEN` often belongs to another
+ * instance, so it is only sent to the host it is for: `GITLAB_HOST` when set
+ * (as with the glab CLI), otherwise gitlab.com.
+ */
+export function gitlabToken(project: GitlabProject): string | undefined {
+  if (process.env.AUTOFIX_GITLAB_TOKEN) return process.env.AUTOFIX_GITLAB_TOKEN;
+  const generic = process.env.GITLAB_TOKEN;
+  if (!generic) return undefined;
+  const host = (u: string) => {
+    try {
+      return new URL(/^https?:\/\//.test(u) ? u : `https://${u}`).host.toLowerCase();
+    } catch {
+      return "";
+    }
+  };
+  return host(project.api) === host(process.env.GITLAB_HOST || "gitlab.com") ? generic : undefined;
 }
 
 /** Opens a merge request and returns its web URL. */

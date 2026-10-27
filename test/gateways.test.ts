@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createMergeRequest, gitlabProject } from "../src/gitlab.js";
+import { createMergeRequest, gitlabProject, gitlabToken } from "../src/gitlab.js";
 import { createBackend, extractJson, OpenAiBackend } from "../src/llm/backend.js";
 
 interface Seen {
@@ -110,6 +110,27 @@ describe("GitLab", () => {
     process.env.CI_API_V4_URL = "https://ci.example.com/api/v4/";
     expect(gitlabProject("git@x:a/b.git")?.api).toBe("https://ci.example.com/api/v4");
     delete process.env.CI_API_V4_URL;
+  });
+
+  it("sends the generic GITLAB_TOKEN only to the host it belongs to", () => {
+    const company = { api: "https://devops.example.com/api/v4", path: "a/b" };
+    const saved = { ...process.env };
+    try {
+      delete process.env.AUTOFIX_GITLAB_TOKEN;
+      delete process.env.GITLAB_HOST;
+      process.env.GITLAB_TOKEN = "for-gitlab-com";
+      expect(gitlabToken(company)).toBeUndefined();
+      expect(gitlabToken({ api: "https://gitlab.com/api/v4", path: "a/b" })).toBe("for-gitlab-com");
+      process.env.GITLAB_HOST = "devops.example.com";
+      expect(gitlabToken(company)).toBe("for-gitlab-com");
+      process.env.AUTOFIX_GITLAB_TOKEN = "explicit";
+      expect(gitlabToken({ api: "https://elsewhere/api/v4", path: "a/b" })).toBe("explicit");
+    } finally {
+      for (const k of ["AUTOFIX_GITLAB_TOKEN", "GITLAB_TOKEN", "GITLAB_HOST"]) {
+        if (saved[k] === undefined) delete process.env[k];
+        else process.env[k] = saved[k];
+      }
+    }
   });
 
   it("opens a merge request through the REST API", async () => {
