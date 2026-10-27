@@ -24,7 +24,8 @@ import { formatFixSummary, formatPlan, formatReport } from "./report.js";
 import { toMarkdown } from "./markdown.js";
 import { mergeSarif, toSarif, type SarifLog } from "./sarif.js";
 import { triageFindings } from "./triage.js";
-import { fails, scan, type FailOn, type IgnoredVuln, type Severity } from "./scan.js";
+import { readSbom } from "./sbom.js";
+import { fails, scan, scanDependencies, type FailOn, type IgnoredVuln, type Severity } from "./scan.js";
 import type { Finding } from "./types.js";
 
 // dist/cli.js sits one level below package.json, so this works from a clone and from npx.
@@ -54,6 +55,7 @@ interface ScanCliOptions {
   triage?: boolean;
   triageLimit: number;
   maxCost?: number;
+  sbom?: string;
 }
 
 /** Caps model spend when a limit is given; useful on a subscription or a large repo. */
@@ -99,17 +101,23 @@ program
   .option("--triage", "ask the model whether each imported vulnerable package is reachable from your call sites")
   .option("--triage-limit <n>", "packages to triage at most, per project", (v) => Number.parseInt(v, 10), 10)
   .option("--max-cost <usd>", "stop triaging once this much has been spent on the model", (v) => Number.parseFloat(v))
+  .option("--sbom <file>", "scan a CycloneDX or SPDX JSON SBOM (e.g. of a deployed image) instead of lockfiles")
   .action(async (dir: string, opts: ScanCliOptions) => {
     const root = path.resolve(dir);
-    const projects = opts.recursive
-      ? await discoverProjects(root)
-      : detectLockfiles(root).map((lock) => ({ dir: root, lock }));
-    if (projects.length === 0) throw new Error(`No lockfile found in ${root}${opts.recursive ? " or below" : ""}.`);
+    if (opts.sbom && (opts.sarif || opts.triage || opts.recursive)) {
+      throw new Error("--sbom cannot be combined with --sarif, --triage or --recursive: an SBOM has no source code or lockfile lines.");
+    }
+    const projects = opts.sbom
+      ? []
+      : opts.recursive
+        ? await discoverProjects(root)
+        : detectLockfiles(root).map((lock) => ({ dir: root, lock }));
+    if (projects.length === 0 && !opts.sbom) throw new Error(`No lockfile found in ${root}${opts.recursive ? " or below" : ""}.`);
 
     const log = (m: string) => console.error(pc.dim(m));
     // One budget across all projects of a recursive scan.
     const triageBackend = withBudget(createBackend(), opts.maxCost);
-    const all: { project: string; lockfile: string; findings: Finding[] }[] = [];
+    const all: { project: string; lockfile: string; findings: Finding[]; sbom?: boolean }[] = [];
     const logs: SarifLog[] = [];
     for (const { dir: projectDir, lock } of projects) {
       const label = path.relative(root, path.join(projectDir, lock.file)).split(path.sep).join("/");
@@ -139,6 +147,20 @@ program
       for (const r of (manifest.ignore ?? []).filter((r) => !ruleActive(r))) {
         const why = r.reason?.trim() ? `expired on ${r.until}` : "has no reason";
         console.log(pc.yellow(`ignore rule for ${r.id}${r.package ? ` (${r.package})` : ""} ${why}; the vulnerability is reported again`));
+      }
+    }
+
+    if (opts.sbom) {
+      const { deps, skipped } = await readSbom(opts.sbom);
+      const ignored: IgnoredVuln[] = [];
+      // Accepted risks still come from the .autofix-cve.json in [dir].
+      const findings = await scanDependencies(deps, root, { includeDev: true, ignored, minSeverity: opts.minSeverity });
+      all.push({ project: ".", lockfile: path.basename(opts.sbom), findings, sbom: true });
+      if (!opts.json) {
+        console.log(formatReport(findings, opts.maxUsages, false));
+        for (const i of ignored) console.log(`${pc.dim("ignored")}  ${i.package}@${i.version} ${i.id}  ${pc.dim(i.reason)}`);
+        const other = Object.entries(skipped).map(([type, n]) => `${type} ${n}`);
+        console.log(pc.dim(`Checked ${deps.length} packages from ${path.basename(opts.sbom)}.${other.length ? ` Not checked (other package types): ${other.join(", ")}.` : ""}`));
       }
     }
 

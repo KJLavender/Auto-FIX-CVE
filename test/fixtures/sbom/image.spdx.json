@@ -1,0 +1,15 @@
+{
+  "spdxVersion": "SPDX-2.3",
+  "packages": [
+    { "SPDXID": "SPDXRef-App", "name": "requirements.txt" },
+    { "SPDXID": "SPDXRef-flask", "name": "Flask", "externalRefs": [{ "referenceType": "purl", "referenceLocator": "pkg:pypi/Flask@2.0.0" }] },
+    { "SPDXID": "SPDXRef-werkzeug", "name": "Werkzeug", "externalRefs": [{ "referenceType": "purl", "referenceLocator": "pkg:pypi/Werkzeug@2.0.0" }] },
+    { "SPDXID": "SPDXRef-gin", "name": "gin", "externalRefs": [{ "referenceType": "purl", "referenceLocator": "pkg:golang/github.com/gin-gonic/gin@1.9.0" }] },
+    { "SPDXID": "SPDXRef-jar", "name": "log4j", "externalRefs": [{ "referenceType": "purl", "referenceLocator": "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1" }] }
+  ],
+  "relationships": [
+    { "spdxElementId": "SPDXRef-App", "relationshipType": "CONTAINS", "relatedSpdxElement": "SPDXRef-flask" },
+    { "spdxElementId": "SPDXRef-App", "relationshipType": "CONTAINS", "relatedSpdxElement": "SPDXRef-werkzeug" },
+    { "spdxElementId": "SPDXRef-flask", "relationshipType": "DEPENDS_ON", "relatedSpdxElement": "SPDXRef-werkzeug" }
+  ]
+}

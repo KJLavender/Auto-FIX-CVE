@@ -8,7 +8,8 @@ function worstSeverity(f: Finding): string {
   return SEVERITY_ORDER.find((s) => found.includes(s)) ?? "UNKNOWN";
 }
 
-function reach(f: Finding): string {
+function reach(f: Finding, codeAnalysed: boolean): string {
+  if (!codeAnalysed) return "unknown (SBOM)";
   if (f.triage) return `triage: **${f.triage.verdict}**`;
   return f.reachability === "likely" ? "**likely reachable**" : f.reachability === "imported" ? "imported" : "not imported";
 }
@@ -21,9 +22,9 @@ function where(f: Finding): string {
 }
 
 /** A Markdown report for CI job summaries and PR comments: one table row per vulnerable package. */
-export function toMarkdown(projects: { lockfile: string; findings: Finding[] }[]): string {
+export function toMarkdown(projects: { lockfile: string; findings: Finding[]; sbom?: boolean }[]): string {
   const out: string[] = ["## Auto-FIX-CVE scan", ""];
-  for (const { lockfile, findings } of projects) {
+  for (const { lockfile, findings, sbom } of projects) {
     if (projects.length > 1) out.push(`### \`${lockfile}\``, "");
     if (findings.length === 0) {
       out.push("No known vulnerabilities.", "");
@@ -40,7 +41,7 @@ export function toMarkdown(projects: { lockfile: string; findings: Finding[] }[]
         ids.slice(0, 3).join(", ") + (ids.length > 3 ? ` +${ids.length - 3}` : "") + (f.vulns.some((v) => v.knownExploited) ? " **⚠ known exploited**" : "");
       const kind = d.direct ? "" : ` (via ${d.introducedBy.join(", ")})`;
       const fix = f.safeVersion ? `→ ${f.safeVersion}${f.breaking ? " (breaking)" : ""}` : "no fixed release";
-      out.push(`| \`${d.name}@${d.version}\`${kind} | ${worstSeverity(f)} | ${vulns} | ${reach(f)} | ${where(f)} | ${fix} |`);
+      out.push(`| \`${d.name}@${d.version}\`${kind} | ${worstSeverity(f)} | ${vulns} | ${reach(f, !sbom)} | ${where(f)} | ${fix} |`);
     }
     out.push("");
   }

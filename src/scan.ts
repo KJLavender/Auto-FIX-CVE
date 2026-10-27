@@ -6,7 +6,7 @@ import { findPythonUsages } from "./impact/python.js";
 import { findRustUsages } from "./impact/rust.js";
 import { readLockfile, type LockRef } from "./lockfile/index.js";
 import { dedupeVulns, OsvClient } from "./osv/client.js";
-import type { Finding, Reachability, Usage, Vulnerability } from "./types.js";
+import type { Dependency, Finding, Reachability, Usage, Vulnerability } from "./types.js";
 import { isBreakingUpgrade, normalizeName } from "./versions.js";
 
 export interface ScanOptions {
@@ -122,7 +122,22 @@ export async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) =>
 
 export async function scan(projectDir: string, options: ScanOptions): Promise<Finding[]> {
   const lock = await readLockfile(projectDir, options.lock);
-  const deps = lock.deps.filter((d) => options.includeDev || !d.dev);
+  const finders = { npm: findUsages, PyPI: findPythonUsages, Go: findGoUsages, "crates.io": findRustUsages };
+  const finder = finders[lock.deps[0]?.ecosystem ?? "npm"];
+  return scanDependencies(lock.deps, projectDir, options, (wanted) => finder(projectDir, wanted));
+}
+
+/**
+ * Matches dependencies against OSV and works out fixes and reachability.
+ * `findUsages` maps package names to call sites; without source code (an SBOM) there are none.
+ */
+export async function scanDependencies(
+  allDeps: Dependency[],
+  projectDir: string,
+  options: ScanOptions,
+  findUsagesOf: (packages: string[]) => Promise<Map<string, Usage[]>> = async () => new Map(),
+): Promise<Finding[]> {
+  const deps = allDeps.filter((d) => options.includeDev || !d.dev);
   const osv = new OsvClient();
   const kev = loadKev();
   const hits = await osv.queryBatch(deps.map((d) => ({ name: d.name, version: d.version, ecosystem: d.ecosystem })));
@@ -140,8 +155,7 @@ export async function scan(projectDir: string, options: ScanOptions): Promise<Fi
   // axios is how an app reaches a vulnerable follow-redirects underneath it.
   const introducers = vulnerable.flatMap((v) => (v.dep.direct ? [] : v.dep.introducedBy));
   const wanted = [...new Set([...vulnerable.map((v) => v.dep.name), ...introducers])];
-  const finders = { npm: findUsages, PyPI: findPythonUsages, Go: findGoUsages, "crates.io": findRustUsages };
-  const usages = await finders[lock.deps[0]?.ecosystem ?? "npm"](projectDir, wanted);
+  const usages = await findUsagesOf(wanted);
 
   const rules = (manifest.ignore ?? []).filter((r) => ruleActive(r));
   const resolved = await mapLimit(vulnerable, CONCURRENCY, async ({ dep, ids }): Promise<Finding | undefined> => {

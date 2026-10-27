@@ -117,6 +117,15 @@ Severity alone blocks too much: a build can be held up for weeks by a HIGH advis
 
 Known-exploited vulnerabilities are listed first and tagged `KNOWN EXPLOITED` in the report, Markdown and SARIF (where they are always errors). Everything else is still reported, so you can fix it on a schedule instead of on the release path. The catalog is downloaded once per run; see [Mirrors and offline use](#mirrors-and-offline-use) to use a local copy.
 
+#### Deployed images (SBOM)
+
+```bash
+trivy image --format cyclonedx -o api.cdx.json harbor.example.com/pdmp/api:<deployed-tag>
+node dist/cli.js scan . --sbom api.cdx.json --baseline api.baseline.json --fail-on risk
+```
+
+A pipeline only checks code when someone pushes. When a new CVE is published, the images already running are not looked at again until the next change. `--sbom` scans a CycloneDX or SPDX JSON SBOM instead of lockfiles: the output of `trivy image`, or the SBOM Harbor generates for an image. Run it on a schedule against the SBOMs of what is deployed, with a baseline, and the job fails only when something **new** appears, such as a package that just landed in the KEV catalog. The npm, PyPI, Go and crates.io packages in the SBOM are checked, including which direct dependency pulls each transitive one in. OS packages (`deb`, `rpm`, `apk`) and other types are counted but not checked; leave those to Trivy. With no source code, reachability is unknown, so use `--fail-on any`, `high` or `risk` (which then means known-exploited). `.autofix-cve.json` ignore rules in `[dir]` still apply. Combine with `runtime` for the Node.js and .NET runtimes, which SBOMs often miss.
+
 ### Accepted risks
 
 Record vulnerabilities you decided not to fix in `.autofix-cve.json`. A reason is required, and an optional expiry date makes the vulnerability come back for review:

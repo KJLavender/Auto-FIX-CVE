@@ -84,7 +84,8 @@ function severityColor(sev: string | undefined): (s: string) => string {
   }
 }
 
-export function formatReport(findings: Finding[], maxUsages = 10): string {
+/** `codeAnalysed` is false for an SBOM, where there is no source to tell whether a package is used. */
+export function formatReport(findings: Finding[], maxUsages = 10, codeAnalysed = true): string {
   if (findings.length === 0) return pc.green("No known vulnerabilities found.");
   const out: string[] = [];
   const vulnCount = findings.reduce((n, f) => n + f.vulns.length, 0);
@@ -94,7 +95,7 @@ export function formatReport(findings: Finding[], maxUsages = 10): string {
     const d = f.dependency;
     // go.mod and Pipfile.lock do not record which package pulls in an indirect one.
     const kind = d.direct ? "direct" : d.introducedBy.length ? `transitive via ${d.introducedBy.join(", ")}` : "transitive";
-    out.push(`${pc.bold(`${d.name}@${d.version}`)}  ${pc.dim(`(${kind}${d.dev ? ", dev" : ""})`)}  ${REACH_LABEL[f.reachability]}`);
+    out.push(`${pc.bold(`${d.name}@${d.version}`)}  ${pc.dim(`(${kind}${d.dev ? ", dev" : ""})`)}  ${codeAnalysed ? REACH_LABEL[f.reachability] : pc.dim("reachability unknown (no source code)")}`);
     if (f.triage) {
       out.push(`  ${TRIAGE_LABEL[f.triage.verdict]} ${f.triage.reasoning}`);
       out.push(pc.dim(`    exploitable if: ${f.triage.conditions}`));
