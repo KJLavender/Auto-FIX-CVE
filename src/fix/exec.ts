@@ -79,7 +79,9 @@ export function run(command: string, cwd: string, timeoutMs = 10 * 60_000, opts:
 
 /** Runs an executable directly, without a shell, so arguments need no quoting. */
 export function runFile(file: string, args: string[], cwd: string, timeoutMs = 60_000, opts: RunOptions = {}): Promise<CommandResult> {
-  return exec(file, args, { cwd, shell: false, env: opts.trusted ? trustedEnv() : projectEnv() }, timeoutMs, [file, ...args].join(" "));
+  // Inline scripts (`node -e …`) are logged by size, not in full.
+  const label = [file, ...args.map((a) => (a.length > 120 ? `<${a.length} chars>` : a))].join(" ");
+  return exec(file, args, { cwd, shell: false, env: opts.trusted ? trustedEnv() : projectEnv() }, timeoutMs, label);
 }
 
 function trustedEnv(): NodeJS.ProcessEnv {

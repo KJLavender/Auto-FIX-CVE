@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { auditEvent, sha256 } from "../audit.js";
 import { fetchWithRetry } from "../http.js";
 
 export interface CompletionRequest {
@@ -200,4 +201,25 @@ export function createBackend(): LlmBackend {
   if (kind === "openai") return new OpenAiBackend();
   if (kind !== "cli") throw new Error(`Unknown AUTOFIX_LLM '${kind}': use cli or openai.`);
   return new CliBackend();
+}
+
+/**
+ * Records every model call in the audit log: a hash and the size of what was
+ * sent (the prompt holds project source, so the hash proves what was asked
+ * without copying the code), and the full reply, which is what got applied.
+ */
+export class AuditBackend implements LlmBackend {
+  constructor(private readonly inner: LlmBackend) {}
+
+  async complete<T>(req: CompletionRequest): Promise<CompletionResult<T>> {
+    const sent = { model: DEFAULT_MODEL, systemSha256: sha256(req.system), promptSha256: sha256(req.prompt), promptChars: req.prompt.length };
+    try {
+      const res = await this.inner.complete<T>(req);
+      auditEvent("model", { ...sent, ok: true, costUsd: res.costUsd, output: res.output });
+      return res;
+    } catch (e) {
+      auditEvent("model", { ...sent, ok: false, error: (e as Error).message });
+      throw e;
+    }
+  }
 }

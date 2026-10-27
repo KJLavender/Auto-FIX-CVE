@@ -16,7 +16,7 @@ import { detectChecks } from "./fix/context.js";
 import { run } from "./fix/exec.js";
 import { FIXABLE, managerFor } from "./fix/managers.js";
 import { fixFinding, planFinding, readInstalledVersion, verifyBaseline, type FixResult } from "./fix/upgrade.js";
-import { BudgetBackend, createBackend, DEFAULT_MODEL, type LlmBackend } from "./llm/backend.js";
+import { AuditBackend, BudgetBackend, createBackend, DEFAULT_MODEL, type LlmBackend } from "./llm/backend.js";
 import { detectLockfiles, discoverProjects } from "./lockfile/index.js";
 import { OsvClient } from "./osv/client.js";
 import { abandonBranch, checkPrPrerequisites, createBranch, openPr } from "./pr.js";
@@ -28,6 +28,7 @@ import { mergeSarif, toSarif, type SarifLog } from "./sarif.js";
 import { triageFindings } from "./triage.js";
 import { osDownloadList, readSbom } from "./sbom.js";
 import { enforceScope, scopeSnapshot } from "./scope.js";
+import { auditEvent, auditing, defaultAuditPath, startAudit, stopAudit } from "./audit.js";
 import { openVex, vexStatements, type VexSources } from "./vex.js";
 import { fails, scan, scanDependencies, type FailOn, type IgnoredVuln, type Severity } from "./scan.js";
 import type { Finding } from "./types.js";
@@ -68,7 +69,29 @@ interface ScanCliOptions {
 
 /** Caps model spend when a limit is given; useful on a subscription or a large repo. */
 function withBudget(backend: LlmBackend, maxCost: number | undefined): LlmBackend {
-  return maxCost === undefined ? backend : new BudgetBackend(backend, maxCost);
+  // Every model call is recorded when an audit log is open.
+  const audited = new AuditBackend(backend);
+  return maxCost === undefined ? audited : new BudgetBackend(audited, maxCost);
+}
+
+/**
+ * Opens the run's audit log (unless --no-audit) before anything changes, and
+ * closes it when the process exits, whatever the outcome.
+ */
+function openAudit(projectDir: string, command: string, opts: { audit?: boolean; auditLog?: string }, meta: Record<string, unknown>): string | undefined {
+  if (opts.audit === false) return undefined;
+  const file = startAudit(path.resolve(opts.auditLog ?? defaultAuditPath(projectDir, command)), {
+    command,
+    version: VERSION,
+    args: process.argv.slice(2),
+    projectDir,
+    model: DEFAULT_MODEL,
+    ...meta,
+  });
+  process.once("exit", () => {
+    if (auditing()) stopAudit({ exitCode: process.exitCode ?? 0 });
+  });
+  return file;
 }
 
 /** A probability between 0 and 1, for --epss-threshold. */
@@ -237,6 +260,8 @@ program
   .option("--prefer-backport", "backport instead of making a breaking upgrade")
   .option("--ignore-scripts", "do not run packages' install scripts (also turns backports off, which need the project's postinstall)")
   .option("--allow-changes <path...>", "files or directories a fix may change besides its own (e.g. committed build output)")
+  .option("--audit-log <file>", "where to write the run's audit log (default .autofix-cve/audit/fix-<time>.jsonl)")
+  .option("--no-audit", "do not write an audit log")
   .option("--dry-run", "show the plan and exit without changing anything")
   .option("-y, --yes", "apply the plan without asking (for CI)")
   .option("--allow-dirty", "run even if the git working tree has uncommitted changes")
@@ -257,6 +282,8 @@ program
         preferBackport?: boolean;
         ignoreScripts?: boolean;
         allowChanges?: string[];
+        audit?: boolean;
+        auditLog?: string;
         dryRun?: boolean;
         yes?: boolean;
         allowDirty?: boolean;
@@ -332,6 +359,11 @@ program
           return;
         }
       }
+      const auditFile = openAudit(projectDir, "fix", opts, {
+        lockfile: lock.file,
+        checks,
+        plan: plan.map((s) => ({ package: s.finding.dependency.name, version: s.finding.dependency.version, action: s.action, reason: s.reason })),
+      });
       if (checks.length) await verifyBaseline(projectDir, checks);
       const branch = base ? await createBranch(projectDir) : undefined;
 
@@ -366,6 +398,8 @@ program
 
       log("\nRescanning…");
       const remaining = await scan(projectDir, { includeDev: opts.dev });
+      auditEvent("results", { results, remaining: remaining.map((f) => `${f.dependency.name}@${f.dependency.version}`) });
+      if (auditFile) log(`Audit log: ${path.relative(process.cwd(), auditFile)}`);
       if (opts.json) console.log(JSON.stringify({ results, remaining }, null, 2));
       else console.log(formatFixSummary(results, remaining));
 
@@ -398,6 +432,8 @@ program
   .option("--allow-dirty", "run even if the git working tree has uncommitted changes")
   .option("--ignore-scripts", "do not run packages' install scripts")
   .option("--allow-changes <path...>", "files or directories a mitigation may change besides the ones it edits")
+  .option("--audit-log <file>", "where to write the run's audit log (default .autofix-cve/audit/mitigate-<time>.jsonl)")
+  .option("--no-audit", "do not write an audit log")
   .option("--json", "print machine-readable JSON")
   .action(
     async (
@@ -410,6 +446,8 @@ program
         maxCost?: number;
         ignoreScripts?: boolean;
         allowChanges?: string[];
+        audit?: boolean;
+        auditLog?: string;
         dryRun?: boolean;
         yes?: boolean;
         allowDirty?: boolean;
@@ -454,6 +492,11 @@ program
           return;
         }
       }
+      const auditFile = openAudit(projectDir, "mitigate", opts, {
+        lockfile: lock.file,
+        checks,
+        candidates: candidates.map((f) => `${f.dependency.name}@${f.dependency.version}`),
+      });
       if (checks.length) await verifyBaseline(projectDir, checks);
 
       const backend = withBudget(createBackend(), opts.maxCost);
@@ -464,6 +507,8 @@ program
         const result = await mitigateFinding(projectDir, f, { backend, checks, maxAttempts: opts.maxAttempts, log });
         results.push(await enforceScope(projectDir, snap, result, "mitigated", [], opts.allowChanges ?? []));
       }
+      auditEvent("results", { results });
+      if (auditFile) log(`Audit log: ${path.relative(process.cwd(), auditFile)}`);
       if (opts.json) {
         console.log(JSON.stringify({ results }, null, 2));
         return;
