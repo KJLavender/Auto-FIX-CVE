@@ -42,6 +42,8 @@ const POC_TRIES = 2;
 /** A backport needs the upstream fix and a top-level install the PoC can load by name. */
 export function canBackport(finding: Finding): boolean {
   const { name, paths } = finding.dependency;
+  // Patching malware leaves malware installed.
+  if (finding.vulns.some((v) => v.malicious)) return false;
   return paths.includes(`node_modules/${name}`) && finding.vulns.some((v) => v.fixCommits.length > 0);
 }
 

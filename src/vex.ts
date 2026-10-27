@@ -54,6 +54,8 @@ const naming = (v: Pick<Vulnerability, "id" | "aliases">) => {
 };
 
 export function vexStatements(src: VexSources, product?: string): VexStatement[] {
+  // Never state that malware does not affect a product.
+  src = { ...src, findings: src.findings.filter((f) => !f.vulns.some((v) => v.malicious)) };
   const products = (purls: string[]) =>
     product ? [{ "@id": product, subcomponents: purls.map((p) => ({ "@id": p })) }] : purls.map((p) => ({ "@id": p }));
   const out: VexStatement[] = [];

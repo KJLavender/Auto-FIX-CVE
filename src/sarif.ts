@@ -84,7 +84,7 @@ export async function toSarif(
           help: { text: `${v.summary}\n\nSee https://osv.dev/vulnerability/${v.id}` },
           defaultConfiguration: { level: LEVEL[sev] ?? "warning" },
           properties: {
-            tags: ["security", "dependency", ...(cve ? [cve] : []), ...(v.knownExploited ? ["known-exploited"] : [])],
+            tags: ["security", "dependency", ...(cve ? [cve] : []), ...(v.knownExploited ? ["known-exploited"] : []), ...(v.malicious ? ["malware"] : [])],
             "security-severity": SECURITY_SEVERITY[sev] ?? "5.0",
             ...(v.epss ? { epss: v.epss.score, "epss-percentile": v.epss.percentile } : {}),
           },
@@ -93,7 +93,7 @@ export async function toSarif(
 
       const named = f.usages.filter((u) => u.mentionedBy.includes(v.id));
       // A model verdict of "not reachable" keeps the alert but stops it from blocking.
-      const level = v.knownExploited ? "error" : f.triage?.verdict === "not-reachable" ? "note" : (LEVEL[sev] ?? "warning");
+      const level = v.knownExploited || v.malicious ? "error" : f.triage?.verdict === "not-reachable" ? "note" : (LEVEL[sev] ?? "warning");
       const triage = f.triage ? ` Triage: ${f.triage.verdict}. ${f.triage.reasoning}` : "";
       results.push({
         ruleId: v.id,

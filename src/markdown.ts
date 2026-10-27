@@ -41,6 +41,7 @@ export function toMarkdown(projects: { lockfile: string; findings: Finding[]; sb
       const vulns =
         ids.slice(0, 3).join(", ") +
         (ids.length > 3 ? ` +${ids.length - 3}` : "") +
+        (f.vulns.some((v) => v.malicious) ? " **⛔ MALWARE**" : "") +
         (f.vulns.some((v) => v.knownExploited) ? " **⚠ known exploited**" : "") +
         (maxEpss(f.vulns) >= 0.01 ? ` (EPSS ${Math.round(maxEpss(f.vulns) * 100) || "<1"}%)` : "");
       const kind = d.binaries ? ` (${d.binaries.map((b) => b.name).join(", ")})` : d.direct ? "" : ` (via ${d.introducedBy.join(", ")})`;

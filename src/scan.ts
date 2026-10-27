@@ -84,6 +84,11 @@ export function maxSeverity(vulns: Vulnerability[]): number {
   return Math.max(0, ...vulns.map((v) => SEVERITY_RANK[v.severity?.toUpperCase() ?? ""] ?? 0));
 }
 
+/** The installed version is malware (a typosquat or a hijacked release), not merely vulnerable. */
+export function isMalicious(f: Pick<Finding, "vulns">): boolean {
+  return f.vulns.some((v) => v.malicious);
+}
+
 export type FailOn = "any" | "likely" | "high" | "risk" | "none";
 
 /** Whether the finding's code path is probably used: a definite model verdict wins over the name-matching heuristic. */
@@ -98,6 +103,8 @@ function reached(f: Finding): boolean {
  * `risk` also fails on a vulnerability that EPSS scores at or above it.
  */
 export function fails(f: Finding, failOn: FailOn, epssThreshold?: number): boolean {
+  // Malware fails every gate but an explicit `none`, whatever its reachability.
+  if (isMalicious(f) && failOn !== "none") return true;
   switch (failOn) {
     case "any":
       return true;
@@ -184,7 +191,10 @@ export async function scanDependencies(
     const accepted = new Set<string>();
     const vulns = dedupeVulns(await osv.getVulns(ids, dep.name, dep.ecosystem)).filter((v) => {
       const keys = [v.id, ...v.aliases];
-      const rule = rules.find((r) => keys.includes(r.id) && (!r.package || normalizeName(dep.ecosystem, r.package) === dep.name));
+      // Malware cannot be accepted as a risk: there is nothing to weigh.
+      const rule = v.malicious
+        ? undefined
+        : rules.find((r) => keys.includes(r.id) && (!r.package || normalizeName(dep.ecosystem, r.package) === dep.name));
       if (!rule) {
         return meetsSeverity(v, options.minSeverity);
       }
@@ -238,6 +248,7 @@ export async function scanDependencies(
   await markEpss(findings.flatMap((f) => f.vulns));
   return findings.sort(
     (a, b) =>
+      Number(isMalicious(b)) - Number(isMalicious(a)) ||
       Number(b.vulns.some((v) => v.knownExploited)) - Number(a.vulns.some((v) => v.knownExploited)) ||
       REACH_RANK[b.reachability] - REACH_RANK[a.reachability] ||
       maxSeverity(b.vulns) - maxSeverity(a.vulns) ||

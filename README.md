@@ -105,6 +105,14 @@ idna@2.10  (transitive via requests)  imported
 
 `not reachable` is only allowed when the code itself rules out every advisory; anything that depends on the environment or on where an input comes from is `unclear`. With `--fail-on likely`, a `reachable` verdict fails the build, `not reachable` does not, and `unclear` falls back to the name-matching heuristic. In SARIF, `not reachable` alerts are downgraded to notes. Verdicts can differ between runs, so treat them as a review aid. Cost on the Python example: about $0.15 for five packages.
 
+#### Malicious packages
+
+Some advisories are not about bugs: the package, or one hijacked release of it, is malware (`event-stream` 3.3.6, `flatmap-stream`, typosquats). These come from the OpenSSF malicious-packages feed (`MAL-…` ids) and GitHub's malware advisories (CWE-506), both in OSV, and are treated differently from vulnerabilities:
+
+- listed first under a `MALICIOUS PACKAGE` banner, as critical, with the advice to remove the package and treat the machine's secrets as leaked, since it ran at install time;
+- they fail every `--fail-on` level except `none`, whatever their reachability, and ignore rules cannot accept them;
+- `fix` moves off the release when a clean one exists, and otherwise refuses with "remove it"; it never backports or `mitigate`s malware, and `--vex` never states it as not affecting you.
+
 #### Risk-based gate
 
 ```bash

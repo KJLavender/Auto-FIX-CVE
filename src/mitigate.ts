@@ -19,7 +19,8 @@ export function callSites(f: Finding): Usage[] {
 
 /** Findings worth mitigating: something has no fixed release, and the code calls into it. */
 export function mitigationCandidates(findings: Finding[]): Finding[] {
-  return findings.filter((f) => unfixedVulns(f).length > 0 && callSites(f).length > 0);
+  // Guards at call sites cannot contain malware, which runs on install or import.
+  return findings.filter((f) => unfixedVulns(f).length > 0 && callSites(f).length > 0 && !f.vulns.some((v) => v.malicious));
 }
 
 export interface MitigateResult {

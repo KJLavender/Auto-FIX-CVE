@@ -105,6 +105,14 @@ idna@2.10  (transitive via requests)  imported
 
 只有在程式碼本身就能排除所有 advisory 時，才允許判成 `not reachable`；取決於執行環境或輸入來源的情況一律是 `unclear`。搭配 `--fail-on likely` 時，`reachable` 會讓 build 失敗，`not reachable` 不會，`unclear` 則退回名稱比對的啟發式判斷。SARIF 中 `not reachable` 的警報會降為 note。判讀結果每次執行可能略有差異，請把它當成 review 的輔助。Python 範例的成本：五個套件約 $0.15。
 
+#### 惡意套件
+
+有些公告講的不是 bug，而是套件本身（或被劫持的某一版）就是惡意程式，例如 `event-stream` 3.3.6、`flatmap-stream`，以及各種 typosquat。這些資料來自 OpenSSF malicious-packages（`MAL-…` 編號）與 GitHub 的 malware 公告（CWE-506），兩者都收錄在 OSV 中，處理方式和一般漏洞不同：
+
+- 以 `MALICIOUS PACKAGE` 標示並排在最前面，一律視為 critical，並提醒你移除套件、把那台機器上的密鑰都當成已外洩，因為它在安裝時就已經執行了；
+- 不論可達性，任何 `--fail-on` 等級（`none` 除外）都會失敗，ignore 規則也不能接受它；
+- 有乾淨版本時 `fix` 會換掉這個版本，沒有就拒絕並提示「請移除」；絕不對惡意程式做 backport 或 `mitigate`，`--vex` 也絕不會聲明它不影響你。
+
 #### 依風險擋 build
 
 ```bash

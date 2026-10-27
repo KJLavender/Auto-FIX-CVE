@@ -24,6 +24,7 @@ All notable changes, newest first. No version has been released yet; everything 
 - `--ignore-scripts` on `fix` and `mitigate`; `AUTOFIX_EXEC_WRAPPER` runs project commands inside a sandbox such as `docker run … sh -c`.
 
 ### Runtimes and gating
+- Malicious packages (OpenSSF `MAL-` records, CWE-506, GitHub malware advisories) are flagged as malware: listed first, fail every gate, cannot be ignored, backported, mitigated or stated away in VEX; `fix` moves off the release or says to remove the package.
 - `mitigate`: for vulnerabilities with no fixed release, the model adds guards at the project's own call sites (validation, size caps, safer options), verified by the checks and rolled back on failure. Recorded with the added code; reports mark them as mitigated with the remaining risk while the code is in place, and VEX states `inline_mitigations_already_exist`.
 - `runtime`: checks the Node.js and .NET base images in Dockerfiles (pinned or floating tags, `ARG` defaults, registry prefixes) against Node.js's advisory index and security releases and .NET's release CVE lists, warns about end of support, and `--fix` pins them to the newest release of the same line.
 - EPSS scores on every CVE (shown from 1%, used for ordering, in Markdown and SARIF); `--epss-threshold` adds them to `--fail-on risk`.

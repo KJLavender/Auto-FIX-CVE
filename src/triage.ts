@@ -71,7 +71,8 @@ export async function triageFindings(
 ): Promise<number> {
   const cache = new Map<string, string[]>();
   let cost = 0;
-  const candidates = findings.filter((f) => f.usages.length || f.via.length).slice(0, limit);
+  // Reachability does not matter for malware, which runs on install or import.
+  const candidates = findings.filter((f) => (f.usages.length || f.via.length) && !f.vulns.some((v) => v.malicious)).slice(0, limit);
   for (const f of candidates) {
     const usages = [...f.usages, ...f.via.flatMap((v) => v.usages)].slice(0, MAX_SITES);
     const sites = await Promise.all(usages.map((u) => excerpt(projectDir, u, cache)));

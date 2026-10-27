@@ -104,6 +104,10 @@ export function formatReport(findings: Finding[], maxUsages = 10, codeAnalysed =
         : d.introducedBy.length
           ? `transitive via ${d.introducedBy.join(", ")}`
           : "transitive";
+    if (f.vulns.some((v) => v.malicious)) {
+      out.push(pc.bgRed(pc.white(pc.bold(` MALICIOUS PACKAGE: ${d.name}@${d.version} `))));
+      out.push(pc.red(`  Remove it${f.safeVersion ? ` or move to ${f.safeVersion}` : ""}, and treat every secret the machine held as leaked: it ran at install time.`));
+    }
     out.push(`${pc.bold(`${d.name}@${d.version}`)}  ${pc.dim(`(${kind}${d.dev ? ", dev" : ""})`)}  ${codeAnalysed ? REACH_LABEL[f.reachability] : pc.dim("reachability unknown (no source code)")}`);
     if (f.triage) {
       out.push(`  ${TRIAGE_LABEL[f.triage.verdict]} ${f.triage.reasoning}`);
@@ -113,7 +117,11 @@ export function formatReport(findings: Finding[], maxUsages = 10, codeAnalysed =
     for (const v of f.vulns) {
       const cves = v.aliases.filter((a) => a.startsWith("CVE-"));
       const sev = severityColor(v.severity)(`[${v.severity ?? "UNKNOWN"}]`);
-      const kev = v.knownExploited ? ` ${pc.bgRed(pc.white(" KNOWN EXPLOITED "))}` : "";
+      const kev = v.malicious
+        ? ` ${pc.bgRed(pc.white(" MALWARE "))}`
+        : v.knownExploited
+          ? ` ${pc.bgRed(pc.white(" KNOWN EXPLOITED "))}`
+          : "";
       const epss = epssLabel(v) ? ` ${pc.magenta(epssLabel(v))}` : "";
       out.push(`  ${sev}${kev}${epss} ${v.id}${cves.length ? ` (${cves.join(", ")})` : ""}  ${v.summary}`);
       for (const c of v.fixCommits.slice(0, 2)) out.push(pc.dim(`      fix: ${c}`));

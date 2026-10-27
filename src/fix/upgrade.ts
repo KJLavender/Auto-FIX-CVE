@@ -159,6 +159,9 @@ export function planFinding(finding: Finding, policy: PlanPolicy): PlanStep {
   const backportOr = (reason: string, why: string): PlanStep =>
     backportable ? { finding, action: "backport", reason: why } : skip(`${reason}; no backport possible`);
 
+  if (finding.vulns.some((v) => v.malicious) && !to) {
+    return skip("MALICIOUS package with no clean release: remove it from the project and rotate any secrets it could read");
+  }
   if (!to) return backportOr("no fixed release", "no fixed release");
   // Security fixes only ever move forward; a downgrade could reintroduce older bugs.
   if (compareVersions(dep.ecosystem, to, dep.version) <= 0) return skip(`refusing to move from ${dep.version} to ${to} (not an upgrade)`);

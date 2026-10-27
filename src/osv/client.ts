@@ -13,7 +13,7 @@ interface OsvVuln {
   details?: string;
   aliases?: string[];
   upstream?: string[];
-  database_specific?: { severity?: string };
+  database_specific?: { severity?: string; cwe_ids?: string[] };
   references?: { type: string; url: string }[];
   affected?: {
     package?: { name: string; ecosystem: string };
@@ -170,6 +170,7 @@ export function dedupeVulns(vulns: Vulnerability[]): Vulnerability[] {
       fixedVersions: [...new Set(group.flatMap((v) => v.fixedVersions))],
       fixCommits: [...new Set(group.flatMap((v) => v.fixCommits))],
       affectedSymbols: [...new Set(group.flatMap((v) => v.affectedSymbols ?? []))],
+      ...(group.some((v) => v.malicious) ? { malicious: true, severity: "CRITICAL" } : {}),
       ...(group.some((v) => v.upstream?.length) ? { upstream: [...new Set(group.flatMap((v) => v.upstream ?? []))] } : {}),
     };
   });
@@ -179,6 +180,18 @@ function minimalFixAbove(eco: Ecosystem, fixed: string[], version: string): stri
   return fixed
     .filter((f) => isValidVersion(eco, f) && compareVersions(eco, f, version) > 0)
     .sort((a, b) => compareVersions(eco, a, b))[0];
+}
+
+/**
+ * Malware rather than a vulnerability: an OpenSSF malicious-packages record
+ * (`MAL-…`), CWE-506 (embedded malicious code), or a GitHub malware advisory.
+ */
+export function isMaliciousRecord(v: Pick<OsvVuln, "id" | "aliases" | "summary" | "database_specific">): boolean {
+  return (
+    [v.id, ...(v.aliases ?? [])].some((id) => id.startsWith("MAL-")) ||
+    (v.database_specific?.cwe_ids ?? []).includes("CWE-506") ||
+    /\bis malware\b|^malicious code in\b|\bembedded malicious code\b/i.test(v.summary ?? "")
+  );
 }
 
 function toVulnerability(v: OsvVuln, packageName: string, ecosystem: Ecosystem): Vulnerability {
@@ -202,7 +215,9 @@ function toVulnerability(v: OsvVuln, packageName: string, ecosystem: Ecosystem):
     ...(v.upstream?.length ? { upstream: v.upstream } : {}),
     summary: v.summary ?? "",
     details: v.details ?? "",
-    severity: v.database_specific?.severity,
+    // Malware is critical whatever its record says (OpenSSF records carry no rating).
+    severity: isMaliciousRecord(v) ? "CRITICAL" : v.database_specific?.severity,
+    ...(isMaliciousRecord(v) ? { malicious: true } : {}),
     fixedVersions: [...fixedVersions],
     affectedSymbols: [...symbols],
     fixCommits: [

@@ -33,6 +33,8 @@ export interface Vulnerability {
   affectedSymbols?: string[];
   /** Listed in CISA's Known Exploited Vulnerabilities catalog: attacked in the wild. */
   knownExploited?: boolean;
+  /** The package (version) is malware, not a bug: a typosquat or a hijacked release. */
+  malicious?: boolean;
   /**
    * Upstream ids a downstream record is about, e.g. the CVEs a Debian DSA fixes.
    * Not aliases (one DSA covers several CVEs), so records are not merged on them.
