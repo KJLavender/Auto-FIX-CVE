@@ -1,6 +1,48 @@
 import semver from "semver";
 
-export type Ecosystem = "npm" | "PyPI" | "Go" | "crates.io" | "NuGet";
+export type Ecosystem = "npm" | "PyPI" | "Go" | "crates.io" | "NuGet" | `Debian:${string}`;
+
+export const isDebian = (eco: Ecosystem): eco is `Debian:${string}` => eco.startsWith("Debian:");
+
+const DPKG = /^(?:(\d+):)?([0-9][A-Za-z0-9.+~:-]*?)(?:-([A-Za-z0-9.+~]+))?$/;
+
+/** dpkg's verrevcmp: digit runs compare numerically; elsewhere `~` sorts before anything (even the end), letters before other characters. */
+function dpkgPart(a: string, b: string): number {
+  const digit = (c: string | undefined) => c !== undefined && c >= "0" && c <= "9";
+  const order = (c: string | undefined) => (c === undefined || digit(c) ? 0 : c === "~" ? -1 : /[A-Za-z]/.test(c) ? c.charCodeAt(0) : c.charCodeAt(0) + 256);
+  let i = 0;
+  let j = 0;
+  while (i < a.length || j < b.length) {
+    while ((i < a.length && !digit(a[i])) || (j < b.length && !digit(b[j]))) {
+      const d = order(a[i]) - order(b[j]);
+      if (d) return d < 0 ? -1 : 1;
+      i++;
+      j++;
+    }
+    while (a[i] === "0") i++;
+    while (b[j] === "0") j++;
+    let first = 0;
+    while (digit(a[i]) && digit(b[j])) {
+      first ||= a.charCodeAt(i) - b.charCodeAt(j);
+      i++;
+      j++;
+    }
+    if (digit(a[i])) return 1;
+    if (digit(b[j])) return -1;
+    if (first) return first < 0 ? -1 : 1;
+  }
+  return 0;
+}
+
+/** Debian package versions: `[epoch:]upstream[-revision]`, compared as dpkg does. */
+export function compareDpkg(a: string, b: string): number {
+  const x = DPKG.exec(a.trim());
+  const y = DPKG.exec(b.trim());
+  if (!x || !y) return a.localeCompare(b);
+  const epoch = Number(x[1] ?? 0) - Number(y[1] ?? 0);
+  if (epoch) return epoch < 0 ? -1 : 1;
+  return dpkgPart(x[2], y[2]) || dpkgPart(x[3] ?? "0", y[3] ?? "0");
+}
 
 const NUGET = /^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:\.(\d+))?(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/;
 
@@ -88,11 +130,13 @@ export function comparePep440(a: string, b: string): number {
 }
 
 export function isValidVersion(eco: Ecosystem, v: string): boolean {
+  if (isDebian(eco)) return DPKG.test(v.trim());
   if (eco === "NuGet") return parseNuget(v) !== undefined;
   return eco === "PyPI" ? parsePep440(v) !== undefined : semver.valid(sv(eco, v)) !== null;
 }
 
 export function compareVersions(eco: Ecosystem, a: string, b: string): number {
+  if (isDebian(eco)) return compareDpkg(a, b);
   if (eco === "NuGet") return compareNuget(a, b);
   return eco === "PyPI" ? comparePep440(a, b) : semver.compare(sv(eco, a), sv(eco, b));
 }
@@ -103,6 +147,8 @@ export function compareVersions(eco: Ecosystem, a: string, b: string): number {
  * changed minor below 1.0) is treated as breaking, which matches common practice.
  */
 export function isBreakingUpgrade(eco: Ecosystem, from: string, to: string): boolean {
+  // Security updates within a Debian release keep the ABI; that is the point of stable updates.
+  if (isDebian(eco)) return false;
   if (eco === "NuGet") {
     const a = parseNuget(from);
     const b = parseNuget(to);

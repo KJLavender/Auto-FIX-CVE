@@ -180,11 +180,13 @@ function minimalFixAbove(eco: Ecosystem, fixed: string[], version: string): stri
 }
 
 function toVulnerability(v: OsvVuln, packageName: string, ecosystem: Ecosystem): Vulnerability {
-  const wanted = normalizeName(ecosystem, packageName);
+  // NuGet ids are case-insensitive.
+  const same = (name: string) =>
+    ecosystem === "NuGet" ? name.toLowerCase() === packageName.toLowerCase() : normalizeName(ecosystem, name) === normalizeName(ecosystem, packageName);
   const fixedVersions = new Set<string>();
   const symbols = new Set<string>();
   for (const a of v.affected ?? []) {
-    if (a.package?.ecosystem !== ecosystem || normalizeName(ecosystem, a.package.name) !== wanted) continue;
+    if (a.package?.ecosystem !== ecosystem || !same(a.package.name)) continue;
     for (const r of a.ranges ?? []) {
       // OSV writes Go versions without the `v` that go.mod and `go get` use.
       for (const e of r.events) if (e.fixed) fixedVersions.add(ecosystem === "Go" && !e.fixed.startsWith("v") ? `v${e.fixed}` : e.fixed);

@@ -124,7 +124,8 @@ export async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) =>
 export async function scan(projectDir: string, options: ScanOptions): Promise<Finding[]> {
   const lock = await readLockfile(projectDir, options.lock);
   const finders = { npm: findUsages, PyPI: findPythonUsages, Go: findGoUsages, "crates.io": findRustUsages, NuGet: findCsharpUsages };
-  const finder = finders[lock.deps[0]?.ecosystem ?? "npm"];
+  // Lockfiles only hold these ecosystems; Debian packages come from SBOMs.
+  const finder = finders[(lock.deps[0]?.ecosystem ?? "npm") as keyof typeof finders];
   return scanDependencies(lock.deps, projectDir, options, (wanted) => finder(projectDir, wanted));
 }
 
