@@ -1,6 +1,6 @@
 import semver from "semver";
 import { endpoints } from "../endpoints.js";
-import { loadJson } from "../http.js";
+import { loadJson, loadText } from "../http.js";
 import type { Vulnerability } from "../types.js";
 
 /** What a base image tag means for the runtime inside it. */
@@ -61,6 +61,29 @@ const NODE_SEVERITY: Record<string, string> = { critical: "CRITICAL", high: "HIG
 
 const nodeReleases = once(() => loadJson<NodeRelease[]>(endpoints.nodeReleases()));
 const nodeVulns = once(() => loadJson<Record<string, NodeVuln>>(endpoints.nodeVulns()));
+const nodeChangelogs = new Map<number, Promise<string | undefined>>();
+function nodeChangelog(major: number): Promise<string | undefined> {
+  let p = nodeChangelogs.get(major);
+  if (!p) nodeChangelogs.set(major, (p = loadText(endpoints.nodeChangelog(major))));
+  return p;
+}
+
+/**
+ * The CVEs a release's changelog section names, with the first line that
+ * mentions each: `* (CVE-2026-111497) deps: brotli: cherry-pick …`.
+ */
+export function changelogCves(changelog: string, version: string): Map<string, string> {
+  const start = changelog.indexOf(`<a id="${version}"></a>`);
+  const out = new Map<string, string>();
+  if (start === -1) return out;
+  const next = changelog.indexOf("<a id=", start + 1);
+  const section = changelog.slice(start, next === -1 ? undefined : next);
+  for (const m of section.matchAll(/^\*\s+\(((?:CVE-\d+-\d+[,\s]*)+)\)\s*(.+)$/gm)) {
+    for (const cve of m[1].split(/[,\s]+/).filter(Boolean)) if (!out.has(cve)) out.set(cve, m[2].replace(/\s*\([^)]*\)\s*$/, "").trim());
+  }
+  return out;
+}
+
 const nodeSchedule = once(() => loadJson<Record<string, { end?: string }>>(endpoints.nodeSchedule()));
 
 function satisfies(version: string, range: string): boolean {
@@ -117,11 +140,27 @@ export const nodeSource: RuntimeSource = {
           fixCommits: [],
         });
       }
-      // The advisory index can trail a security release by weeks; report releases it does not cover yet.
+      // The advisory index can trail a security release by weeks; take those releases' CVEs from
+      // the changelog, or report the release itself when even that is unavailable.
       const covered = new Set(vulns.flatMap((v) => v.fixedVersions));
+      const known = new Set(vulns.flatMap((v) => v.aliases));
       for (const r of line) {
         const rv = r.version.slice(1);
         if (!r.security || !semver.gt(rv, version) || covered.has(rv)) continue;
+        const cves = changelogCves((await nodeChangelog(major)) ?? "", rv);
+        for (const [cve, text] of cves) {
+          if (known.has(cve)) continue;
+          known.add(cve);
+          vulns.push({
+            id: cve,
+            aliases: [cve],
+            summary: text,
+            details: `Fixed in Node.js ${rv} (${r.date}); not in the advisory index yet. See https://nodejs.org/en/blog/release/v${rv}`,
+            fixedVersions: [rv],
+            fixCommits: [],
+          });
+        }
+        if (cves.size) continue;
         vulns.push({
           id: `NODE-SECURITY-${rv}`,
           aliases: [],

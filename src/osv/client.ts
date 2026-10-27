@@ -12,6 +12,7 @@ interface OsvVuln {
   summary?: string;
   details?: string;
   aliases?: string[];
+  upstream?: string[];
   database_specific?: { severity?: string };
   references?: { type: string; url: string }[];
   affected?: {
@@ -169,6 +170,7 @@ export function dedupeVulns(vulns: Vulnerability[]): Vulnerability[] {
       fixedVersions: [...new Set(group.flatMap((v) => v.fixedVersions))],
       fixCommits: [...new Set(group.flatMap((v) => v.fixCommits))],
       affectedSymbols: [...new Set(group.flatMap((v) => v.affectedSymbols ?? []))],
+      ...(group.some((v) => v.upstream?.length) ? { upstream: [...new Set(group.flatMap((v) => v.upstream ?? []))] } : {}),
     };
   });
 }
@@ -197,6 +199,7 @@ function toVulnerability(v: OsvVuln, packageName: string, ecosystem: Ecosystem):
   return {
     id: v.id,
     aliases: v.aliases ?? [],
+    ...(v.upstream?.length ? { upstream: v.upstream } : {}),
     summary: v.summary ?? "",
     details: v.details ?? "",
     severity: v.database_specific?.severity,

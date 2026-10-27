@@ -15,6 +15,12 @@ export const endpoints = {
   /** Runtime release data: a URL or a local file. */
   nodeReleases: () => process.env.AUTOFIX_NODE_RELEASES_URL || "https://nodejs.org/dist/index.json",
   nodeVulns: () => process.env.AUTOFIX_NODE_VULNS_URL || "https://raw.githubusercontent.com/nodejs/security-wg/main/vuln/core/index.json",
+  /** `{major}` is replaced by the release line, e.g. `22`. */
+  nodeChangelog: (major: number) =>
+    (process.env.AUTOFIX_NODE_CHANGELOG_URL || "https://raw.githubusercontent.com/nodejs/node/main/doc/changelogs/CHANGELOG_V{major}.md").replace(
+      "{major}",
+      String(major),
+    ),
   nodeSchedule: () => process.env.AUTOFIX_NODE_SCHEDULE_URL || "https://raw.githubusercontent.com/nodejs/Release/main/schedule.json",
   /** `{channel}` is replaced by the .NET channel, e.g. `8.0`. */
   dotnetReleases: (channel: string) =>

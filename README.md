@@ -282,6 +282,23 @@ Some of the worst vulnerabilities are not in any package: Node2Shell (CVE-2026-1
 
 `--fix` rewrites each affected `FROM` (or the `ARG` it takes the version from) to the newest release of the same line, keeping the variant (`-bookworm-slim`, `-noble-chiseled`). It never changes the major version. A `@sha256` digest is dropped with a note, since the new one is only known after pulling. Rebuild and redeploy afterwards.
 
+### Audit (everything at once)
+
+```bash
+node dist/cli.js audit . --sbom api.cdx.json
+```
+
+`audit` scans every lockfile below the directory, the Node.js and .NET runtimes in its Dockerfiles, and any SBOMs given, then puts **one vulnerability that shows up in several components** at the top, each with its own fix:
+
+```
+CVE-2026-111497  src: expose `BROTLI_DECODER_ERROR_FORMAT_BLOCK_SWITCH`
+  brotli 1.0.9-2 (libbrotli1)  image.cdx.json        → brotli 1.0.9-2+deb12u1
+  Node.js 22.20.0              api/Dockerfile:1      → FROM node:22.23.4-bookworm-slim
+  .NET 8.0.30                  backend/Dockerfile:1  → FROM mcr.microsoft.com/dotnet/aspnet:8.0.33
+```
+
+That is Node2Shell: one upstream Brotli bug, bundled into Node.js, into .NET and into Debian's `libbrotli1`. Upgrading one of them leaves the others exposed, and no single scanner shows all three. Records are matched on CVE ids, including the CVEs a Debian advisory names, and for a Node.js security release the advisory index has not caught up with, the CVEs come from the release's changelog. A one-line summary per source follows. `--json` gives the whole result; `--fail-on any|high|risk` turns it into a gate (default: report only).
+
 ### Verify (CI)
 
 ```bash
@@ -371,6 +388,7 @@ Every outside service can be pointed at a mirror, for networks that only reach t
 | `AUTOFIX_KEV_URL` | CISA's feed | KEV catalog: a URL, a local JSON file, or `off` |
 | `AUTOFIX_NODE_RELEASES_URL` | `https://nodejs.org/dist/index.json` | Node.js releases (`runtime`) |
 | `AUTOFIX_NODE_VULNS_URL` | Node.js security-wg `vuln/core/index.json` | Node.js advisory index (`runtime`) |
+| `AUTOFIX_NODE_CHANGELOG_URL` | Node.js `doc/changelogs/CHANGELOG_V{major}.md` | CVEs of security releases not yet in the index (`runtime`) |
 | `AUTOFIX_NODE_SCHEDULE_URL` | Node.js Release `schedule.json` | Node.js end-of-life dates (`runtime`) |
 | `AUTOFIX_DOTNET_RELEASES_URL` | Microsoft's `release-metadata/{channel}/releases.json` | .NET releases; `{channel}` becomes e.g. `8.0` (`runtime`) |
 

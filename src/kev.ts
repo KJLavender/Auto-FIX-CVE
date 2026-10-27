@@ -37,6 +37,6 @@ export function resetKev(): void {
 export function markExploited(vulns: Vulnerability[], kev: Set<string> | undefined): void {
   if (!kev) return;
   for (const v of vulns) {
-    if ([v.id, ...v.aliases].some((id) => kev.has(id.toUpperCase()))) v.knownExploited = true;
+    if ([v.id, ...v.aliases, ...(v.upstream ?? [])].some((id) => kev.has(id.toUpperCase()))) v.knownExploited = true;
   }
 }

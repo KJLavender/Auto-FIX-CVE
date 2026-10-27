@@ -132,8 +132,10 @@ export function formatRuntimeReport(findings: RuntimeFinding[], maxVulns = 8): s
       const text = f.eolDays < 0 ? `support ENDED on ${s.eol}` : `support ends ${s.eol} (in ${f.eolDays} days)`;
       out.push(`  ${pc.red(text)}: move to a newer ${s.runtime} line`);
     }
-    // Most serious first; unrated ones sit just below high, since release notes rarely rate them.
-    const rank = (v: (typeof s.vulns)[number]) => (v.knownExploited ? 10 : maxSeverity([v]) || 2.5);
+    // Known exploited first, then what only the newest release fixes (this week's news, usually
+    // unrated yet), then by severity; other unrated ones sit just below high.
+    const rank = (v: (typeof s.vulns)[number]) =>
+      v.knownExploited ? 10 : s.latest && v.fixedVersions.includes(s.latest) ? 5 : maxSeverity([v]) || 2.5;
     // Ties: most recently fixed first, i.e. the newest news.
     const fixedIn = (v: (typeof s.vulns)[number]) => semver.coerce(v.fixedVersions[0])?.version ?? "0.0.0";
     const shown = [...s.vulns].sort((a, b) => rank(b) - rank(a) || semver.compare(fixedIn(b), fixedIn(a))).slice(0, maxVulns);

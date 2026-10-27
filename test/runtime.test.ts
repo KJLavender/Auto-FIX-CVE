@@ -46,6 +46,8 @@ describe("runtime scan", () => {
       "1": { cve: ["CVE-2026-0001"], vulnerable: "22.x", patched: "^22.1.1", description: "zlib crash", severity: "high" },
     });
     process.env.AUTOFIX_NODE_SCHEDULE_URL = await file("node-schedule.json", { v22: { end: "2027-04-30" } });
+    // No changelog: an unindexed security release is then reported as a whole.
+    process.env.AUTOFIX_NODE_CHANGELOG_URL = path.join(data, "missing-CHANGELOG_V{major}.md");
     process.env.AUTOFIX_DOTNET_RELEASES_URL = await file("dotnet-{channel}.json", {
       "eol-date": "2026-11-10",
       releases: [

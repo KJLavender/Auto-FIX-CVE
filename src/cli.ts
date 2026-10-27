@@ -20,7 +20,8 @@ import { BudgetBackend, createBackend, DEFAULT_MODEL, type LlmBackend } from "./
 import { detectLockfiles, discoverProjects } from "./lockfile/index.js";
 import { OsvClient } from "./osv/client.js";
 import { abandonBranch, checkPrPrerequisites, createBranch, openPr } from "./pr.js";
-import { formatFixSummary, formatPlan, formatReport } from "./report.js";
+import { formatFixSummary, formatPlan, formatReport, severityBreakdown } from "./report.js";
+import { correlate, formatUpstreamGroups, type Exposure } from "./correlate.js";
 import { toMarkdown } from "./markdown.js";
 import { mergeSarif, toSarif, type SarifLog } from "./sarif.js";
 import { triageFindings } from "./triage.js";
@@ -365,6 +366,76 @@ program
       process.exitCode = results.some((r) => r.status !== "fixed") ? 1 : 0;
     },
   );
+
+program
+  .command("audit")
+  .description("Everything at once: lockfiles (recursively), runtimes in Dockerfiles and SBOMs, with vulnerabilities that span several components grouped")
+  .argument("[dir]", "repository root", ".")
+  .option("--sbom <files...>", "also scan these CycloneDX or SPDX SBOMs (e.g. of deployed images)")
+  .option("--no-dev", "ignore dev-only dependencies")
+  .option("--json", "print machine-readable JSON")
+  .addOption(
+    new Option("--fail-on <level>", "exit 1 when anything matches: any, high, risk (known exploited, or high and reachable), none")
+      .choices(["any", "high", "risk", "none"])
+      .default("none"),
+  )
+  .action(async (dir: string, opts: { sbom?: string[]; dev: boolean; json?: boolean; failOn: FailOn }) => {
+    const root = path.resolve(dir);
+    const rel = (p: string) => path.relative(root, p).split(path.sep).join("/") || ".";
+    const log = (m: string) => console.error(pc.dim(m));
+    const exposures: Exposure[] = [];
+    const packages: { source: string; findings: Finding[] }[] = [];
+
+    for (const { dir: projectDir, lock } of await discoverProjects(root)) {
+      const source = rel(path.join(projectDir, lock.file));
+      log(`Scanning ${source}…`);
+      packages.push({ source, findings: await scan(projectDir, { includeDev: opts.dev, lock }) });
+    }
+    for (const file of opts.sbom ?? []) {
+      log(`Scanning ${file}…`);
+      const { deps } = await readSbom(file);
+      packages.push({ source: path.basename(file), findings: await scanDependencies(deps, root, { includeDev: true }) });
+    }
+    for (const { source, findings } of packages) {
+      for (const f of findings) {
+        const d = f.dependency;
+        const bins = d.binaries ? ` (${d.binaries.map((b) => b.name).join(", ")})` : "";
+        exposures.push({ where: source, component: `${d.name} ${d.version}${bins}`, fix: f.safeVersion && `${d.name} ${f.safeVersion}`, vulns: f.vulns, unfixable: f.unfixable });
+      }
+    }
+    log("Checking runtimes in Dockerfiles…");
+    const runtimes = await scanRuntimes(root);
+    for (const r of runtimes) {
+      const s = r.status;
+      exposures.push({
+        where: `${r.file}:${r.line}${r.shipped ? "" : " (build stage)"}`,
+        component: `${s.runtime} ${s.version ?? `${s.line}.x (floating)`}`,
+        fix: r.edit?.to.trim() ?? (s.latest ? `${s.runtime} ${s.latest}` : undefined),
+        vulns: s.vulns,
+      });
+    }
+    const groups = correlate(exposures);
+
+    if (opts.json) {
+      console.log(JSON.stringify({ upstream: groups, packages, runtimes }, null, 2));
+    } else {
+      const count = (fs: Finding[]) => fs.reduce((n, f) => n + f.vulns.length, 0);
+      console.log(formatUpstreamGroups(groups));
+      console.log(pc.bold("Summary"));
+      for (const p of packages) {
+        console.log(`  ${p.source.padEnd(40)} ${p.findings.length ? `${count(p.findings)} vulnerabilities in ${p.findings.length} packages (${severityBreakdown(p.findings)})` : pc.green("clean")}`);
+      }
+      for (const r of runtimes) {
+        const s = r.status;
+        const state = s.vulns.length ? `${s.vulns.length} fixed in newer releases` : s.version ? pc.green("up to date") : pc.yellow("floating tag");
+        console.log(`  ${`${r.file}:${r.line}`.padEnd(40)} ${s.runtime} ${s.version ?? `${s.line}.x`}: ${state}${r.eolDays !== undefined && r.eolDays <= 90 ? pc.red(`, support ends ${s.eol}`) : ""}`);
+      }
+      console.log(pc.dim("\nDetails: `scan -r`, `scan --sbom` and `runtime` show each source in full; `fix` and `runtime --fix` apply the fixes."));
+    }
+    const failing =
+      packages.some((p) => p.findings.some((f) => fails(f, opts.failOn))) || runtimes.some((r) => runtimeFails(r, opts.failOn));
+    process.exitCode = failing ? 1 : 0;
+  });
 
 program
   .command("runtime")

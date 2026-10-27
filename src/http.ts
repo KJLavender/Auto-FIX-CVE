@@ -37,3 +37,17 @@ export async function loadJson<T>(source: string): Promise<T | undefined> {
     return undefined;
   }
 }
+
+/** Like loadJson, for plain text. */
+export async function loadText(source: string): Promise<string | undefined> {
+  try {
+    if (/^https?:\/\//i.test(source)) {
+      const res = await fetchWithRetry(source, { headers: { "user-agent": "autofix-cve" } });
+      return res.ok ? await res.text() : undefined;
+    }
+    const { readFile } = await import("node:fs/promises");
+    return await readFile(source, "utf8");
+  } catch {
+    return undefined;
+  }
+}

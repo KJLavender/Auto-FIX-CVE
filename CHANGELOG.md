@@ -21,6 +21,7 @@ All notable changes, newest first. No version has been released yet; everything 
 
 ### Runtimes and gating
 - `runtime`: checks the Node.js and .NET base images in Dockerfiles (pinned or floating tags, `ARG` defaults, registry prefixes) against Node.js's advisory index and security releases and .NET's release CVE lists, warns about end of support, and `--fix` pins them to the newest release of the same line.
+- `audit`: lockfiles, runtimes and SBOMs in one run, with a CVE that appears in several components (Brotli in Node.js, .NET and Debian) grouped and each fix listed. Node.js security releases the advisory index lacks get their CVEs from the release changelog, and Debian advisories are matched on the CVEs they name (also for KEV).
 - `scan --vex`: an OpenVEX document from not-reachable triage verdicts, ignore rules with a `justification`, and verified backports, for `trivy --vex` instead of a registry allowlist.
 - Debian packages in SBOMs: grouped under their source package, compared like dpkg, and `--deb-list` writes the `package=version` pins to download for an offline apt mirror.
 - `scan --sbom`: scan a CycloneDX or SPDX SBOM (from `trivy image` or Harbor) instead of lockfiles, with the dependency graph, so deployed images can be re-checked on a schedule against new advisories.

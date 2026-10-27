@@ -282,6 +282,23 @@ node dist/cli.js runtime path/to/repo --fail-on risk --json
 
 `--fix` 會把每個受影響的 `FROM`（或它取版本用的 `ARG`）改成同一條版本線的最新版，保留變體後綴（`-bookworm-slim`、`-noble-chiseled`），不會更動主版本。`@sha256` digest 會被拿掉並提示，因為新的 digest 要 pull 之後才知道。改完後請重新 build 並部署。
 
+### Audit（一次看全部）
+
+```bash
+node dist/cli.js audit . --sbom api.cdx.json
+```
+
+`audit` 會掃描目錄底下所有 lockfile、Dockerfile 裡的 Node.js 與 .NET runtime，以及指定的 SBOM，再把**同一個漏洞出現在好幾個元件**的情況放在最上面，並列出各自的修法：
+
+```
+CVE-2026-111497  src: expose `BROTLI_DECODER_ERROR_FORMAT_BLOCK_SWITCH`
+  brotli 1.0.9-2 (libbrotli1)  image.cdx.json        → brotli 1.0.9-2+deb12u1
+  Node.js 22.20.0              api/Dockerfile:1      → FROM node:22.23.4-bookworm-slim
+  .NET 8.0.30                  backend/Dockerfile:1  → FROM mcr.microsoft.com/dotnet/aspnet:8.0.33
+```
+
+這就是 Node2Shell：同一個上游 Brotli bug，同時被打包進 Node.js、.NET 和 Debian 的 `libbrotli1`。只升級其中一個，其他地方仍然有漏洞，而且沒有任何單一掃描器會同時列出這三處。比對依據是 CVE 編號，包含 Debian 公告所指的 CVE；至於漏洞索引還沒收錄的 Node.js 安全性更新，CVE 取自該版本的 changelog。後面接著每個來源一行的摘要。`--json` 輸出完整結果；`--fail-on any|high|risk` 可以把它當成閘門（預設只產生報告）。
+
 ### 驗證（CI）
 
 ```bash
@@ -371,6 +388,7 @@ Advisory 內文和上游 diff 對 LLM 來說都是不可信的輸入，所以會
 | `AUTOFIX_KEV_URL` | CISA 官方 feed | KEV 清單：URL、本機 JSON 檔，或 `off` |
 | `AUTOFIX_NODE_RELEASES_URL` | `https://nodejs.org/dist/index.json` | Node.js 發行清單（`runtime`） |
 | `AUTOFIX_NODE_VULNS_URL` | Node.js security-wg 的 `vuln/core/index.json` | Node.js 漏洞索引（`runtime`） |
+| `AUTOFIX_NODE_CHANGELOG_URL` | Node.js 的 `doc/changelogs/CHANGELOG_V{major}.md` | 索引還沒收錄的安全性更新所修的 CVE（`runtime`） |
 | `AUTOFIX_NODE_SCHEDULE_URL` | Node.js Release 的 `schedule.json` | Node.js EOL 日期（`runtime`） |
 | `AUTOFIX_DOTNET_RELEASES_URL` | Microsoft 的 `release-metadata/{channel}/releases.json` | .NET 發行資料，`{channel}` 會換成例如 `8.0`（`runtime`） |
 
