@@ -96,7 +96,9 @@ export function formatReport(findings: Finding[], maxUsages = 10, codeAnalysed =
     const d = f.dependency;
     // go.mod and Pipfile.lock do not record which package pulls in an indirect one.
     const kind = d.binaries
-      ? `${d.ecosystem} source package, installed as ${d.binaries.map((b) => b.name).join(", ")}`
+      ? d.binaries.length === 1 && d.binaries[0].name === d.name
+        ? `${d.ecosystem} package`
+        : `${d.ecosystem} source package, installed as ${d.binaries.map((b) => b.name).join(", ")}`
       : d.direct
         ? "direct"
         : d.introducedBy.length

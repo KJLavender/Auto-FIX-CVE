@@ -1,8 +1,19 @@
 import semver from "semver";
+import { compareApk, compareRpm, isApkVersion, isRpmVersion } from "./os-versions.js";
 
-export type Ecosystem = "npm" | "PyPI" | "Go" | "crates.io" | "NuGet" | `Debian:${string}`;
+/** OS package ecosystems use OSV's per-release names: `Debian:12`, `Ubuntu:22.04:LTS`, `Alpine:v3.20`, `AlmaLinux:9`, `Rocky Linux:9`. */
+export type OsEcosystem = `Debian:${string}` | `Ubuntu:${string}` | `Alpine:${string}` | `AlmaLinux:${string}` | `Rocky Linux:${string}`;
+export type Ecosystem = "npm" | "PyPI" | "Go" | "crates.io" | "NuGet" | OsEcosystem;
 
-export const isDebian = (eco: Ecosystem): eco is `Debian:${string}` => eco.startsWith("Debian:");
+/** Which package manager's versioning an OS ecosystem uses; undefined for language ecosystems. */
+export function osFamily(eco: Ecosystem): "deb" | "apk" | "rpm" | undefined {
+  if (eco.startsWith("Debian:") || eco.startsWith("Ubuntu:")) return "deb";
+  if (eco.startsWith("Alpine:")) return "apk";
+  if (eco.startsWith("AlmaLinux:") || eco.startsWith("Rocky Linux:")) return "rpm";
+  return undefined;
+}
+
+export const isOsEcosystem = (eco: Ecosystem): eco is OsEcosystem => osFamily(eco) !== undefined;
 
 const DPKG = /^(?:(\d+):)?([0-9][A-Za-z0-9.+~:-]*?)(?:-([A-Za-z0-9.+~]+))?$/;
 
@@ -130,13 +141,15 @@ export function comparePep440(a: string, b: string): number {
 }
 
 export function isValidVersion(eco: Ecosystem, v: string): boolean {
-  if (isDebian(eco)) return DPKG.test(v.trim());
+  const os = osFamily(eco);
+  if (os) return os === "deb" ? DPKG.test(v.trim()) : os === "apk" ? isApkVersion(v) : isRpmVersion(v);
   if (eco === "NuGet") return parseNuget(v) !== undefined;
   return eco === "PyPI" ? parsePep440(v) !== undefined : semver.valid(sv(eco, v)) !== null;
 }
 
 export function compareVersions(eco: Ecosystem, a: string, b: string): number {
-  if (isDebian(eco)) return compareDpkg(a, b);
+  const os = osFamily(eco);
+  if (os) return os === "deb" ? compareDpkg(a, b) : os === "apk" ? compareApk(a, b) : compareRpm(a, b);
   if (eco === "NuGet") return compareNuget(a, b);
   return eco === "PyPI" ? comparePep440(a, b) : semver.compare(sv(eco, a), sv(eco, b));
 }
@@ -147,8 +160,8 @@ export function compareVersions(eco: Ecosystem, a: string, b: string): number {
  * changed minor below 1.0) is treated as breaking, which matches common practice.
  */
 export function isBreakingUpgrade(eco: Ecosystem, from: string, to: string): boolean {
-  // Security updates within a Debian release keep the ABI; that is the point of stable updates.
-  if (isDebian(eco)) return false;
+  // Security updates within one OS release keep the ABI; that is the point of stable updates.
+  if (isOsEcosystem(eco)) return false;
   if (eco === "NuGet") {
     const a = parseNuget(from);
     const b = parseNuget(to);

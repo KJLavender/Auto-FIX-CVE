@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { debianDownloadList, parsePurl, readSbom } from "../src/sbom.js";
+import { osDownloadList, parsePurl, readSbom } from "../src/sbom.js";
 import type { Finding } from "../src/types.js";
 import { compareVersions } from "../src/versions.js";
 
@@ -16,9 +16,20 @@ describe("parsePurl", () => {
       version: "3.0.11-1~deb12u1",
     });
     expect(parsePurl("pkg:deb/debian/zlib1g@1.2.13.dfsg-1?distro=debian-12&epoch=1")).toMatchObject({ version: "1:1.2.13.dfsg-1" });
-    // Without a release there is no OSV ecosystem to ask; Ubuntu is not covered.
+    // Without a release there is no OSV ecosystem to ask.
     expect(parsePurl("pkg:deb/debian/zlib1g@1.2.13")).toMatchObject({ type: "deb", ecosystem: undefined });
-    expect(parsePurl("pkg:deb/ubuntu/zlib1g@1.2.13?distro=ubuntu-22.04")).toMatchObject({ ecosystem: undefined });
+    expect(parsePurl("pkg:deb/ubuntu/zlib1g@1.2.13?distro=ubuntu-22.04")).toMatchObject({ ecosystem: "Ubuntu:22.04:LTS", name: "zlib1g" });
+    expect(parsePurl("pkg:deb/ubuntu/zlib1g@1.2.13?distro=ubuntu-23.10")).toMatchObject({ ecosystem: "Ubuntu:23.10" });
+    expect(parsePurl("pkg:apk/alpine/libssl3@3.1.4-r0?arch=x86_64&distro=3.19.1")).toMatchObject({ ecosystem: undefined });
+    expect(parsePurl("pkg:apk/alpine/libssl3@3.1.4-r0?arch=x86_64&distro=alpine-3.19.1")).toMatchObject({ ecosystem: "Alpine:v3.19", name: "libssl3" });
+    expect(parsePurl("pkg:rpm/alma/openssl-libs@3.0.7-24.el9?arch=x86_64&epoch=1&distro=alma-9.3")).toEqual({
+      type: "rpm",
+      ecosystem: "AlmaLinux:9",
+      name: "openssl-libs",
+      version: "1:3.0.7-24.el9",
+    });
+    expect(parsePurl("pkg:rpm/rocky/openssl-libs@3.0.7-24.el9?distro=rocky-9.3")).toMatchObject({ ecosystem: "Rocky Linux:9" });
+    expect(parsePurl("pkg:rpm/redhat/openssl-libs@3.0.7-24.el9?distro=redhat-9.3")).toMatchObject({ ecosystem: undefined });
     expect(parsePurl("not-a-purl")).toBeUndefined();
   });
 });
@@ -56,10 +67,15 @@ describe("readSbom", () => {
   it("lists the fixed binaries to download for an offline mirror", async () => {
     const { deps } = await readSbom("test/fixtures/sbom/image.cdx.json");
     const finding = (name: string, safeVersion?: string) => ({ dependency: deps.find((d) => d.name === name)!, safeVersion }) as Finding;
-    expect(debianDownloadList([finding("openssl", "3.0.22-1~deb12u2"), finding("brotli"), finding("express", "4.20.0")])).toEqual([
+    expect(osDownloadList([finding("openssl", "3.0.22-1~deb12u2"), finding("brotli"), finding("express", "4.20.0")])).toEqual([
       "libssl3=3.0.22-1~deb12u2",
       "openssl=3.0.22-1~deb12u2",
     ]);
+    const rpm = {
+      dependency: { ecosystem: "AlmaLinux:9", name: "openssl-libs", version: "1:3.0.7-24.el9", paths: [], direct: true, dev: false, introducedBy: [], binaries: [{ name: "openssl-libs", version: "1:3.0.7-24.el9" }] },
+      safeVersion: "1:3.0.7-27.el9",
+    } as unknown as Finding;
+    expect(osDownloadList([rpm])).toEqual(["openssl-libs-1:3.0.7-27.el9"]);
   });
 
   it("rejects other documents", async () => {
@@ -82,5 +98,33 @@ describe("Debian versions", () => {
     ]);
     expect(compareVersions("Debian:12", "3.0.11-1~deb12u1", "3.0.11-1")).toBe(-1);
     expect(compareVersions("Debian:12", "1.0-1", "1.0-1")).toBe(0);
+  });
+});
+
+describe("apk and rpm versions", () => {
+  it("order like apk-tools", () => {
+    const v = ["3.1.4-r1", "3.1.4_rc1-r0", "3.1.4-r0", "3.1.4_p1-r0", "3.1.10-r0", "3.1.4a-r0", "3.1-r0"];
+    expect([...v].sort((a, b) => compareVersions("Alpine:v3.19", a, b))).toEqual([
+      "3.1-r0",
+      "3.1.4_rc1-r0",
+      "3.1.4-r0",
+      "3.1.4-r1",
+      "3.1.4_p1-r0",
+      "3.1.4a-r0",
+      "3.1.10-r0",
+    ]);
+  });
+
+  it("order like rpm: epoch, then version and release by rpmvercmp", () => {
+    const v = ["1:3.0.7-27.el9", "3.0.7-24.el9", "1:3.0.7-24.el9", "1:3.0.7-24.el9_3.1", "1:3.0.7~beta-1.el9", "1:3.0.10-1.el9", "2:1.0-1"];
+    expect([...v].sort((a, b) => compareVersions("AlmaLinux:9", a, b))).toEqual([
+      "3.0.7-24.el9",
+      "1:3.0.7~beta-1.el9",
+      "1:3.0.7-24.el9",
+      "1:3.0.7-24.el9_3.1",
+      "1:3.0.7-27.el9",
+      "1:3.0.10-1.el9",
+      "2:1.0-1",
+    ]);
   });
 });

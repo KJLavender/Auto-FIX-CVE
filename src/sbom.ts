@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import type { Dependency, Finding } from "./types.js";
-import { isDebian, normalizeName, type Ecosystem } from "./versions.js";
+import { normalizeName, osFamily, type Ecosystem, type OsEcosystem } from "./versions.js";
 
 export interface SbomDeps {
   deps: Dependency[];
@@ -11,9 +11,32 @@ export interface SbomDeps {
 const PURL_ECOSYSTEM: Record<string, Ecosystem> = { npm: "npm", pypi: "PyPI", golang: "Go", cargo: "crates.io", nuget: "NuGet" };
 
 /**
- * `pkg:npm/%40angular/core@20.1.0?x=y` → ecosystem, name and version. Debian
- * packages (`pkg:deb/debian/libbrotli1@1.0.9-2?distro=debian-12.11`) map to
- * OSV's per-release ecosystem (`Debian:12`). Other types have no ecosystem.
+ * OSV's per-release ecosystem for an OS package, from the purl's type,
+ * namespace and `distro` qualifier (as Trivy writes them): `debian-12.11` →
+ * `Debian:12`, `ubuntu-22.04` → `Ubuntu:22.04:LTS`, `alpine-3.20.3` →
+ * `Alpine:v3.20`, `alma-9.4` → `AlmaLinux:9`, `rocky-9.4` → `Rocky Linux:9`.
+ */
+export function osEcosystem(type: string, namespace: string, distro: string): OsEcosystem | undefined {
+  const ns = namespace.toLowerCase();
+  const release = /-(\d+(?:\.\d+)*)$/.exec(distro)?.[1];
+  if (!release) return undefined;
+  const [major, minor = "0"] = release.split(".");
+  if (type === "deb" && ns === "debian") return `Debian:${major}`;
+  if (type === "deb" && ns === "ubuntu") {
+    const version = `${major}.${minor.padStart(2, "0")}`;
+    // LTS releases are the April ones of even years.
+    return minor === "04" && Number(major) % 2 === 0 ? `Ubuntu:${version}:LTS` : `Ubuntu:${version}`;
+  }
+  if (type === "apk" && ns === "alpine") return `Alpine:v${major}.${minor}`;
+  if (type === "rpm" && /^(alma|almalinux)$/.test(ns)) return `AlmaLinux:${major}`;
+  if (type === "rpm" && /^(rocky|rocky-linux|rockylinux)$/.test(ns)) return `Rocky Linux:${major}`;
+  return undefined;
+}
+
+/**
+ * `pkg:npm/%40angular/core@20.1.0?x=y` → ecosystem, name and version. OS
+ * packages get OSV's per-release ecosystem (see `osEcosystem`); other types,
+ * and OS packages without a known release, have none.
  */
 export function parsePurl(purl: string): { type: string; ecosystem?: Ecosystem; name: string; version: string } | undefined {
   const m = /^pkg:([^/]+)\/([^@?#]+)@([^?#]+)(?:\?([^#]*))?/.exec(purl);
@@ -24,14 +47,12 @@ export function parsePurl(purl: string): { type: string; ecosystem?: Ecosystem; 
   let version = decodeURIComponent(m[3]);
   const qualifiers = new URLSearchParams(m[4] ?? "");
   let ecosystem: Ecosystem | undefined = PURL_ECOSYSTEM[type];
-  if (type === "deb" && segments[0]?.toLowerCase() === "debian") {
-    const release = /^debian-(\d+)/i.exec(qualifiers.get("distro") ?? "")?.[1];
-    if (release) {
-      ecosystem = `Debian:${release}`;
-      name = segments.slice(1).join("/");
-      const epoch = qualifiers.get("epoch");
-      if (epoch && !version.includes(":")) version = `${epoch}:${version}`;
-    }
+  const os = segments.length > 1 ? osEcosystem(type, segments[0], qualifiers.get("distro") ?? "") : undefined;
+  if (os) {
+    ecosystem = os;
+    name = segments.slice(1).join("/");
+    const epoch = qualifiers.get("epoch");
+    if (epoch && epoch !== "0" && !version.includes(":")) version = `${epoch}:${version}`;
   }
   if (ecosystem === "Go" && !version.startsWith("v")) version = `v${version}`;
   return { type, ecosystem, name: ecosystem ? normalizeName(ecosystem, name) : name, version };
@@ -133,10 +154,12 @@ export async function readSbom(file: string): Promise<SbomDeps> {
       continue;
     }
     const direct = isDirect(node.ref);
-    // Debian advisories are per source package; group the installed binaries under it.
-    const debian = isDebian(p.ecosystem);
-    const name = debian ? (node.source?.name ?? p.name) : p.name;
-    const version = debian ? (node.source?.version ?? p.version) : p.version;
+    // Debian, Ubuntu and Alpine advisories are per source package; group the installed binaries
+    // under it. AlmaLinux and Rocky advisories name binary packages, so those stay as they are.
+    const family = osFamily(p.ecosystem);
+    const bySource = family === "deb" || family === "apk";
+    const name = bySource ? (node.source?.name ?? p.name) : p.name;
+    const version = bySource ? (node.source?.version ?? p.version) : p.version;
     const key = `${p.ecosystem}:${name}@${version}`;
     const dep: Dependency = byKey.get(key) ?? {
       ecosystem: p.ecosystem,
@@ -151,20 +174,26 @@ export async function readSbom(file: string): Promise<SbomDeps> {
     dep.direct ||= direct;
     dep.paths = [...new Set([...dep.paths, ...node.paths])];
     dep.introducedBy = [...new Set([...dep.introducedBy, ...(direct ? [name] : directAncestors(node.ref))])];
-    if (debian && !dep.binaries?.some((b) => b.name === p.name)) dep.binaries = [...(dep.binaries ?? []), { name: p.name, version: p.version }];
+    if (family && !dep.binaries?.some((b) => b.name === p.name)) {
+      // The purl without qualifiers, as other tools write it for this package.
+      dep.binaries = [...(dep.binaries ?? []), { name: p.name, version: p.version, purl: node.purl?.split("?")[0] }];
+    }
     byKey.set(key, dep);
   }
   return { deps: [...byKey.values()], skipped };
 }
 
 /**
- * `apt-get download`-style pins for the Debian packages an upgrade would fix:
- * every installed binary of the source package at the fixed version, e.g.
- * `libbrotli1=1.0.9-2+deb12u1`. Security updates give the binaries the
- * source's version; a binNMU (`+b1`) would differ and needs checking by hand.
+ * Pins for the OS packages an upgrade would fix, one per installed binary, in
+ * the format the package manager takes: `libbrotli1=1.0.9-2+deb12u1` (apt),
+ * `libssl3=3.1.7-r1` (apk), `openssl-libs-1:3.0.7-27.el9` (dnf). Security
+ * updates give a source package's binaries its version; a Debian binNMU
+ * (`+b1`) would differ and needs checking by hand.
  */
-export function debianDownloadList(findings: Finding[]): string[] {
-  return findings.flatMap((f) =>
-    f.dependency.binaries && f.safeVersion ? f.dependency.binaries.map((b) => `${b.name}=${f.safeVersion}`) : [],
-  );
+export function osDownloadList(findings: Finding[]): string[] {
+  return findings.flatMap((f) => {
+    const family = osFamily(f.dependency.ecosystem);
+    if (!family || !f.safeVersion || !f.dependency.binaries) return [];
+    return f.dependency.binaries.map((b) => (family === "rpm" ? `${b.name}-${f.safeVersion}` : `${b.name}=${f.safeVersion}`));
+  });
 }

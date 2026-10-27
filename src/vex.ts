@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { Dependency, Finding, Vulnerability } from "./types.js";
-import { isDebian, type Ecosystem } from "./versions.js";
+import { osFamily, type Ecosystem } from "./versions.js";
 
 /** OpenVEX's reasons a product is not affected. */
 export const VEX_JUSTIFICATIONS = [
@@ -16,10 +16,12 @@ const PURL_TYPE: Record<string, string> = { npm: "npm", PyPI: "pypi", Go: "golan
 
 /** Package URLs for a dependency; a Debian source package yields one per installed binary. */
 export function purlsOf(dep: Pick<Dependency, "ecosystem" | "name" | "version" | "binaries">): string[] {
-  if (isDebian(dep.ecosystem)) {
-    // No `distro` qualifier: scanners compare the qualifiers a VEX purl has, and write the point release (debian-12.11).
+  const family = osFamily(dep.ecosystem);
+  if (family) {
+    // No qualifiers: scanners compare the qualifiers a VEX purl has, and write the point release (debian-12.11).
+    const namespace = dep.ecosystem.split(":")[0].toLowerCase().replace(" linux", "");
     const binaries = dep.binaries ?? [{ name: dep.name, version: dep.version }];
-    return binaries.map((b) => `pkg:deb/debian/${b.name}@${encodeURIComponent(b.version)}`);
+    return binaries.map((b) => b.purl ?? `pkg:${family}/${namespace}/${b.name}@${encodeURIComponent(b.version)}`);
   }
   const type = PURL_TYPE[dep.ecosystem];
   // Scoped npm names keep the slash between namespace and name; the `@` is encoded.

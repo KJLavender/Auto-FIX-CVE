@@ -25,7 +25,7 @@ import { correlate, formatUpstreamGroups, type Exposure } from "./correlate.js";
 import { toMarkdown } from "./markdown.js";
 import { mergeSarif, toSarif, type SarifLog } from "./sarif.js";
 import { triageFindings } from "./triage.js";
-import { debianDownloadList, readSbom } from "./sbom.js";
+import { osDownloadList, readSbom } from "./sbom.js";
 import { openVex, vexStatements, type VexSources } from "./vex.js";
 import { fails, scan, scanDependencies, type FailOn, type IgnoredVuln, type Severity } from "./scan.js";
 import type { Finding } from "./types.js";
@@ -61,7 +61,7 @@ interface ScanCliOptions {
   sbom?: string;
   vex?: string;
   vexProduct?: string;
-  debList?: string;
+  osList?: string;
 }
 
 /** Caps model spend when a limit is given; useful on a subscription or a large repo. */
@@ -118,10 +118,10 @@ program
   .option("--sbom <file>", "scan a CycloneDX or SPDX JSON SBOM (e.g. of a deployed image) instead of lockfiles")
   .option("--vex <file>", "also write an OpenVEX document: not-reachable triage verdicts, justified ignore rules, backports")
   .option("--vex-product <purl>", "with --vex: the product the packages ship in (e.g. pkg:oci/api@sha256:…), so statements name it")
-  .option("--deb-list <file>", "with --sbom: write `package=version` lines for the fixed Debian packages, for offline download")
+  .option("--os-list <file>", "with --sbom: write pins for the fixed OS packages (apt/apk `name=version`, dnf `name-version`), for offline download")
   .action(async (dir: string, opts: ScanCliOptions) => {
     const root = path.resolve(dir);
-    if (opts.debList && !opts.sbom) throw new Error("--deb-list needs --sbom.");
+    if (opts.osList && !opts.sbom) throw new Error("--os-list needs --sbom.");
     if (opts.sbom && (opts.sarif || opts.triage || opts.recursive)) {
       throw new Error("--sbom cannot be combined with --sarif, --triage or --recursive: an SBOM has no source code or lockfile lines.");
     }
@@ -180,10 +180,10 @@ program
       all.push({ project: ".", lockfile: path.basename(opts.sbom), findings, sbom: true });
       vexSources.findings.push(...findings);
       vexSources.ignored.push(...ignored);
-      if (opts.debList) {
-        const lines = debianDownloadList(findings);
-        await writeFile(opts.debList, lines.map((l) => `${l}\n`).join(""), "utf8");
-        console.error(pc.dim(`Wrote ${lines.length} Debian package pins to ${opts.debList}.`));
+      if (opts.osList) {
+        const lines = osDownloadList(findings);
+        await writeFile(opts.osList, lines.map((l) => `${l}\n`).join(""), "utf8");
+        console.error(pc.dim(`Wrote ${lines.length} OS package pins to ${opts.osList}.`));
       }
       if (!opts.json) {
         console.log(formatReport(findings, opts.maxUsages, false));

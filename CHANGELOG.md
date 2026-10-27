@@ -24,7 +24,7 @@ All notable changes, newest first. No version has been released yet; everything 
 - EPSS scores on every CVE (shown from 1%, used for ordering, in Markdown and SARIF); `--epss-threshold` adds them to `--fail-on risk`.
 - `audit`: lockfiles, runtimes and SBOMs in one run, with a CVE that appears in several components (Brotli in Node.js, .NET and Debian) grouped and each fix listed. Node.js security releases the advisory index lacks get their CVEs from the release changelog, and Debian advisories are matched on the CVEs they name (also for KEV).
 - `scan --vex`: an OpenVEX document from not-reachable triage verdicts, ignore rules with a `justification`, and verified backports, for `trivy --vex` instead of a registry allowlist.
-- Debian packages in SBOMs: grouped under their source package, compared like dpkg, and `--deb-list` writes the `package=version` pins to download for an offline apt mirror.
+- OS packages in SBOMs: Debian, Ubuntu, Alpine, AlmaLinux and Rocky Linux, compared like dpkg, apk and rpm, with Debian/Ubuntu/Alpine binaries grouped under their source package. `--os-list` writes the pins to download for an offline mirror in apt, apk or dnf format.
 - `scan --sbom`: scan a CycloneDX or SPDX SBOM (from `trivy image` or Harbor) instead of lockfiles, with the dependency graph, so deployed images can be re-checked on a schedule against new advisories.
 - `--fail-on risk`: fail only on vulnerabilities in CISA's Known Exploited Vulnerabilities catalog, or high/critical ones that the code reaches. Known-exploited ones are tagged in every output.
 - LLM: `AUTOFIX_LLM=openai` calls any OpenAI-compatible endpoint (company gateways, vLLM, Ollama) with structured output, a corrective retry, and token pricing for `--max-cost`.
