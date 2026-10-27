@@ -151,4 +151,13 @@ describe("detectChecks", () => {
     await writeFile(path.join(dir, "package.json"), JSON.stringify({ scripts: { test: 'echo "Error: no test specified" && exit 1' } }));
     expect(await detectChecks(dir, "npm")).toEqual([]);
   });
+
+  it("runs Angular's watching test command once", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "autofix-checks-"));
+    await writeFile(path.join(dir, "package.json"), JSON.stringify({ scripts: { build: "ng build", test: "ng test" } }));
+    expect(await detectChecks(dir, "npm")).toEqual(["npm run build", "npm test -- --watch=false"]);
+    expect(await detectChecks(dir, "pnpm")).toEqual(["pnpm run build", "pnpm test --watch=false"]);
+    await writeFile(path.join(dir, "package.json"), JSON.stringify({ scripts: { test: "ng test --watch=false" } }));
+    expect(await detectChecks(dir, "npm")).toEqual(["npm test"]);
+  });
 });

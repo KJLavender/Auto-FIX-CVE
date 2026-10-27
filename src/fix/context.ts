@@ -7,6 +7,7 @@ import type { Usage } from "../types.js";
 import { runFile } from "./exec.js";
 
 const DEFAULT_TEST = /no test specified/;
+const WATCHING_TEST = /^\s*ng\s+test\b(?!.*--watch)/;
 
 /** Picks verification commands for the project, cheapest first, using its own package manager. */
 export async function detectChecks(projectDir: string, kind: LockKind): Promise<string[]> {
@@ -35,7 +36,10 @@ export async function detectChecks(projectDir: string, kind: LockKind): Promise<
     checks.push("npx tsc --noEmit");
   }
   if (scripts.build) checks.push(`${runner} run build`);
-  if (scripts.test && !DEFAULT_TEST.test(scripts.test)) checks.push(`${runner} test`);
+  if (scripts.test && !DEFAULT_TEST.test(scripts.test)) {
+    // `ng test` (Karma) keeps watching for changes by default and would never exit.
+    checks.push(WATCHING_TEST.test(scripts.test) ? `${runner} test ${runner === "npm" ? "-- " : ""}--watch=false` : `${runner} test`);
+  }
   return checks;
 }
 
