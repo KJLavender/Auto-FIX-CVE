@@ -1,4 +1,4 @@
-import { appliedBackports, mitigatedIds, readManifest, ruleActive } from "./backport/manifest.js";
+import { activeMitigations, appliedBackports, mitigatedIds, readManifest, ruleActive, type MitigationRecord } from "./backport/manifest.js";
 import { findUsages } from "./impact/analyze.js";
 import { findCsharpUsages } from "./impact/csharp.js";
 import { markEpss, maxEpss } from "./epss.js";
@@ -119,6 +119,12 @@ export function fails(f: Finding, failOn: FailOn, epssThreshold?: number): boole
 
 const CONCURRENCY = 8;
 
+function mitigationFor(mitigations: MitigationRecord[], name: string, version: string): Pick<Finding, "mitigation"> {
+  const m = mitigations.find((r) => r.package === name && r.version === version);
+  if (!m) return {};
+  return { mitigation: { vulns: m.vulns, explanation: m.explanation, residualRisk: m.residualRisk, files: [...new Set(m.guards.map((g) => g.file))] } };
+}
+
 /** Like Promise.all over `items`, with at most `limit` calls in flight; keeps input order. */
 export async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
   const out: R[] = new Array(items.length);
@@ -160,6 +166,7 @@ export async function scanDependencies(
   // reported again, but only while the patch is really applied.
   const manifest = await readManifest(projectDir);
   manifest.backports = await appliedBackports(projectDir, manifest);
+  const mitigations = await activeMitigations(projectDir, manifest);
   const vulnerable = deps.flatMap((dep, i) => {
     const mitigated = mitigatedIds(manifest, dep.name, dep.version);
     const ids = hits[i].filter((id) => !mitigated.has(id));
@@ -222,6 +229,7 @@ export async function scanDependencies(
       usages: depUsages,
       via,
       reachability,
+      ...mitigationFor(mitigations, dep.name, dep.version),
     };
   });
 

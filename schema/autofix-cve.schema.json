@@ -2,10 +2,34 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/KJLavender/Auto-FIX-CVE/main/schema/autofix-cve.schema.json",
   "title": "Auto-FIX-CVE project file",
-  "description": "Backports applied by `autofix-cve fix` and vulnerabilities the team accepted as risks.",
+  "description": "Backports applied by `autofix-cve fix`, mitigations added by `autofix-cve mitigate`, and vulnerabilities the team accepted as risks.",
   "type": "object",
   "properties": {
     "$schema": { "type": "string" },
+    "mitigations": {
+      "description": "Written by `autofix-cve mitigate`: guards at the project's call sites for vulnerabilities with no fixed release. A mitigation counts only while its guard code is still in the files.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["package", "version", "vulns", "guards", "explanation", "residualRisk", "date"],
+        "properties": {
+          "package": { "type": "string" },
+          "version": { "type": "string" },
+          "vulns": { "type": "array", "items": { "type": "string" } },
+          "guards": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["file", "code"],
+              "properties": { "file": { "type": "string" }, "code": { "type": "string" } }
+            }
+          },
+          "explanation": { "type": "string" },
+          "residualRisk": { "type": "string" },
+          "date": { "type": "string" }
+        }
+      }
+    },
     "backports": {
       "description": "Written by `autofix-cve fix`; not meant to be edited by hand.",
       "type": "array",

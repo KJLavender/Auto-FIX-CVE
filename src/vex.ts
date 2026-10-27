@@ -70,6 +70,19 @@ export function vexStatements(src: VexSources, product?: string): VexStatement[]
       });
     }
   }
+  for (const f of src.findings) {
+    if (!f.mitigation || f.triage?.verdict === "not-reachable") continue;
+    for (const v of f.vulns.filter((x) => f.mitigation!.vulns.includes(x.id))) {
+      out.push({
+        vulnerability: naming(v),
+        products: products(purlsOf(f.dependency)),
+        status: "not_affected",
+        justification: "inline_mitigations_already_exist",
+        impact_statement: f.mitigation.explanation,
+        status_notes: `Guards at the call sites (${f.mitigation.files.join(", ")}). Still exploitable: ${f.mitigation.residualRisk}`,
+      });
+    }
+  }
   for (const i of src.ignored) {
     if (!i.justification) continue;
     out.push({

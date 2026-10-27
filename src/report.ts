@@ -136,6 +136,10 @@ export function formatReport(findings: Finding[], maxUsages = 10, codeAnalysed =
       }
       if (f.usages.length > maxUsages) out.push(pc.dim(`    … ${f.usages.length - maxUsages} more`));
     }
+    if (f.mitigation) {
+      out.push(`  ${pc.cyan("mitigated at call sites")} (${f.mitigation.files.join(", ")}): ${f.mitigation.explanation}`);
+      out.push(pc.dim(`    still exploitable: ${f.mitigation.residualRisk}`));
+    }
     for (const via of f.via) {
       out.push(`  ${pc.cyan(`reached through ${via.package}, used in ${via.usages.length} place(s):`)}`);
       for (const u of via.usages.slice(0, 3)) out.push(`    ${u.file}:${u.line}:${u.column}  ${pc.bold(u.symbol)}  ${pc.dim(u.snippet)}`);

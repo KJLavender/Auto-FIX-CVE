@@ -86,4 +86,6 @@ export interface Finding {
   reachability: Reachability;
   /** Set by `scan --triage`. */
   triage?: Triage;
+  /** Guards `mitigate` added at the call sites, while they are still in the code. */
+  mitigation?: { vulns: string[]; explanation: string; residualRisk: string; files: string[] };
 }

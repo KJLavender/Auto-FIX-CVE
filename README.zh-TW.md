@@ -284,6 +284,18 @@ node dist/cli.js runtime path/to/repo --fail-on risk --json
 
 `--fix` 會把每個受影響的 `FROM`（或它取版本用的 `ARG`）改成同一條版本線的最新版，保留變體後綴（`-bookworm-slim`、`-noble-chiseled`），不會更動主版本。`@sha256` digest 會被拿掉並提示，因為新的 digest 要 pull 之後才知道。改完後請重新 build 並部署。
 
+### Mitigate（還沒有修補版時）
+
+```bash
+node dist/cli.js mitigate path/to/project
+```
+
+有時候根本沒有版本可以升級：npm 上的 `xlsx` 0.18.5 有 prototype pollution 和 ReDoS 兩個漏洞，修好的版本卻從未發布到 npm。`mitigate` 會找出每個「沒有修補版、但你的程式有呼叫到」的漏洞，把公告內容和**你自己的呼叫處**交給模型，請它在那裡加上防護：輸入驗證、大小限制、移除危險的 key，或改用同一個 API 較安全的選項。防護套用後會跑你的驗證指令，失敗就回滾（並帶著失敗訊息再試一輪）。絕不會修改依賴清單、lockfile 或已安裝的套件，模型也可以回答「這裡沒有可加的防護」。
+
+在 `xlsx` 的例子中（一輪，$0.04），它在 `parseUpload` 裡替 `XLSX.read` 加上型別與 10 MB 大小檢查，並在解析前後比對 `Object.prototype`，一旦被污染就還原並拒絕這個檔案；同時也說明了仍然可被利用的部分：精心構造的小檔案仍可能在大小上限內觸發 ReDoS，應該放到 worker 並設逾時，或改用 SheetJS CDN 上的 0.20.2。
+
+防護會連同它加入的程式碼記錄在 `.autofix-cve.json`。這些漏洞仍會出現在所有報告中，只要那段程式碼還在，就會標示 `mitigated at call sites` 並附上剩餘風險（程式碼被改掉，標示也會跟著消失）。`scan --vex` 會把它們寫成 `not_affected` / `inline_mitigations_already_exist`。一旦有修補版發布，請盡快用 `fix` 升級。
+
 ### Audit（一次看全部）
 
 ```bash

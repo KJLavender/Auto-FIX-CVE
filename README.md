@@ -284,6 +284,18 @@ Some of the worst vulnerabilities are not in any package: Node2Shell (CVE-2026-1
 
 `--fix` rewrites each affected `FROM` (or the `ARG` it takes the version from) to the newest release of the same line, keeping the variant (`-bookworm-slim`, `-noble-chiseled`). It never changes the major version. A `@sha256` digest is dropped with a note, since the new one is only known after pulling. Rebuild and redeploy afterwards.
 
+### Mitigate (no fixed release yet)
+
+```bash
+node dist/cli.js mitigate path/to/project
+```
+
+Sometimes there is nothing to upgrade to: `xlsx` 0.18.5 on npm has a prototype pollution and a ReDoS advisory, and the fixed versions were never published to npm. `mitigate` takes each vulnerability without a fixed release that your code calls into, shows the model the advisories and **your own call sites**, and asks for guards there: input validation, size caps, stripping dangerous keys, or a safer option of the same API. The guards are applied, your checks are run, and anything that fails is rolled back (with another round that sees the failure). Dependency manifests, lockfiles and installed packages are never edited, and the model may answer that no guard applies.
+
+On the `xlsx` example (one round, $0.04) it wrapped `XLSX.read` in `parseUpload` with a type and 10 MB size check plus a snapshot of `Object.prototype` that reverts and rejects any pollution, and stated what is still exploitable: a small crafted file can still trigger the ReDoS within the cap, so parse in a worker with a timeout, or move to SheetJS 0.20.2 from its CDN.
+
+A mitigation is recorded in `.autofix-cve.json` with the code it added. The vulnerabilities stay in every report, marked `mitigated at call sites` with the remaining risk, for as long as that code is still there (edit it away and the mark goes too). `scan --vex` states them as `not_affected` / `inline_mitigations_already_exist`. Upgrade with `fix` as soon as a fixed release ships.
+
 ### Audit (everything at once)
 
 ```bash

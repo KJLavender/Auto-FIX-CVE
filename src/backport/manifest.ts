@@ -34,10 +34,28 @@ export interface IgnoreRule {
   justification?: VexJustification;
 }
 
+/**
+ * Guards added at the project's own call sites for vulnerabilities that have
+ * no fixed release. They reduce exposure but do not fix the package, so the
+ * vulnerabilities stay reported, marked as mitigated while the guards are in place.
+ */
+export interface MitigationRecord {
+  package: string;
+  version: string;
+  vulns: string[];
+  /** Code the guards added, per file; the mitigation counts only while all of it is still there. */
+  guards: { file: string; code: string }[];
+  explanation: string;
+  /** What would still be exploitable, in the model's words. */
+  residualRisk: string;
+  date: string;
+}
+
 export interface Manifest {
   $schema?: string;
   backports: BackportRecord[];
   ignore?: IgnoreRule[];
+  mitigations?: MitigationRecord[];
 }
 
 /** Lets editors validate and autocomplete the file, ignore rules in particular. */
@@ -100,4 +118,28 @@ export async function removeBackport(projectDir: string, name: string, version: 
 /** Vulnerability ids already mitigated by a backport for exactly this installed version. */
 export function mitigatedIds(manifest: Manifest, name: string, version: string): Set<string> {
   return new Set(manifest.backports.filter((b) => b.package === name && b.version === version).flatMap((b) => b.vulns));
+}
+
+/** Records a mitigation, replacing an earlier one for the same package version. */
+export async function addMitigation(projectDir: string, record: MitigationRecord): Promise<void> {
+  const manifest = await readManifest(projectDir);
+  const others = (manifest.mitigations ?? []).filter((m) => !(m.package === record.package && m.version === record.version));
+  await writeManifest(projectDir, { ...manifest, mitigations: [...others, record] });
+}
+
+/** Mitigations whose guard code is still present in the source, i.e. not edited away since. */
+export async function activeMitigations(projectDir: string, manifest: Manifest): Promise<MitigationRecord[]> {
+  const out: MitigationRecord[] = [];
+  for (const m of manifest.mitigations ?? []) {
+    let intact = true;
+    for (const g of m.guards) {
+      const file = path.join(projectDir, g.file);
+      // Line endings may change on checkout (core.autocrlf); compare without them.
+      const lf = (s: string) => s.replace(/\r\n/g, "\n");
+      const text = existsSync(file) ? lf(await readFile(file, "utf8")) : "";
+      if (!text.includes(lf(g.code))) intact = false;
+    }
+    if (intact) out.push(m);
+  }
+  return out;
 }

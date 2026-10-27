@@ -22,6 +22,7 @@ import { OsvClient } from "./osv/client.js";
 import { abandonBranch, checkPrPrerequisites, createBranch, openPr } from "./pr.js";
 import { formatFixSummary, formatPlan, formatReport, severityBreakdown } from "./report.js";
 import { correlate, formatUpstreamGroups, type Exposure } from "./correlate.js";
+import { callSites, mitigateFinding, mitigationCandidates, unfixedVulns, type MitigateResult } from "./mitigate.js";
 import { toMarkdown } from "./markdown.js";
 import { mergeSarif, toSarif, type SarifLog } from "./sarif.js";
 import { triageFindings } from "./triage.js";
@@ -373,6 +374,99 @@ program
         console.log(pc.dim("Changes are left in the working tree for review."));
       }
       process.exitCode = results.some((r) => r.status !== "fixed") ? 1 : 0;
+    },
+  );
+
+program
+  .command("mitigate")
+  .description("For vulnerabilities with no fixed release: add guards at your own call sites, verified by your checks")
+  .argument("[dir]", "project directory", ".")
+  .option("--check <cmd...>", "verification commands (default: typecheck/build/test scripts)")
+  .option("--only <pkg...>", "only these packages")
+  .option("--lockfile <file>", "which lockfile to use when the directory has several")
+  .option("--max-attempts <n>", "model rounds per package when checks fail", (v) => Number.parseInt(v, 10), 2)
+  .option("--max-cost <usd>", "stop calling the model once this much has been spent", (v) => Number.parseFloat(v))
+  .option("--dry-run", "list what would be mitigated and exit")
+  .option("-y, --yes", "go ahead without asking (for CI)")
+  .option("--allow-dirty", "run even if the git working tree has uncommitted changes")
+  .option("--json", "print machine-readable JSON")
+  .action(
+    async (
+      dir: string,
+      opts: {
+        check?: string[];
+        only?: string[];
+        lockfile?: string;
+        maxAttempts: number;
+        maxCost?: number;
+        dryRun?: boolean;
+        yes?: boolean;
+        allowDirty?: boolean;
+        json?: boolean;
+      },
+    ) => {
+      const projectDir = path.resolve(dir);
+      const log = (m: string) => console.error(pc.dim(m));
+      const found = detectLockfiles(projectDir);
+      const lock = opts.lockfile ? found.find((l) => l.file === opts.lockfile) : found[0];
+      if (!lock) throw new Error(opts.lockfile ? `${opts.lockfile} is not a lockfile found here.` : `No lockfile in ${projectDir}.`);
+      const status = await run("git status --porcelain", projectDir);
+      if (status.ok && status.output.trim() && !opts.allowDirty) {
+        throw new Error("Uncommitted changes in the git working tree. Commit or stash them, or pass --allow-dirty.");
+      }
+
+      log("Scanning dependencies…");
+      const findings = (await scan(projectDir, { includeDev: false, lock })).filter(
+        (f) => (!opts.only || opts.only.includes(f.dependency.name)) && !f.mitigation,
+      );
+      const candidates = mitigationCandidates(findings);
+      const out = opts.json ? console.error : console.log;
+      if (candidates.length === 0) {
+        if (opts.json) console.log(JSON.stringify({ results: [] }, null, 2));
+        else console.log(pc.green("Nothing to mitigate: every vulnerability your code calls into has a fixed release (use `fix`)."));
+        return;
+      }
+      const checks = opts.check ?? (await detectChecks(projectDir, lock.kind));
+      out(pc.bold("Mitigation plan"));
+      for (const f of candidates) {
+        const sites = callSites(f);
+        out(`  ${pc.bold(`${f.dependency.name}@${f.dependency.version}`)}  ${pc.dim(`${unfixedVulns(f).length} without a fixed release, ${sites.length} call site(s) in ${[...new Set(sites.map((u) => u.file))].join(", ")}`)}`);
+      }
+      out(pc.dim(`  verify with: ${checks.length ? checks.join(" → ") : "(none found; pass --check)"}`));
+      out(pc.dim("  Only your own files are edited; failed attempts are rolled back. The vulnerabilities stay reported, marked as mitigated."));
+      if (opts.dryRun) return;
+      if (!opts.yes) {
+        if (!process.stdin.isTTY) throw new Error("Not running in a terminal; pass --yes to go ahead.");
+        if (!(await confirm(`Mitigate ${candidates.length} package(s)? [y/N] `))) {
+          console.log("Aborted; nothing was changed.");
+          return;
+        }
+      }
+      if (checks.length) await verifyBaseline(projectDir, checks);
+
+      const backend = withBudget(createBackend(), opts.maxCost);
+      const results: MitigateResult[] = [];
+      for (const f of candidates) {
+        log(`\n${f.dependency.name}@${f.dependency.version}`);
+        results.push(await mitigateFinding(projectDir, f, { backend, checks, maxAttempts: opts.maxAttempts, log }));
+      }
+      if (opts.json) {
+        console.log(JSON.stringify({ results }, null, 2));
+        return;
+      }
+      console.log(pc.bold("\nMitigation summary"));
+      const label = { mitigated: pc.green("MITIGATED"), "not-applicable": pc.yellow("NOT APPLICABLE"), failed: pc.red("FAILED") };
+      for (const r of results) {
+        console.log(`${label[r.status]}  ${pc.bold(`${r.package}@${r.version}`)}  ${pc.dim(r.vulns.join(", "))}`);
+        if (r.explanation) console.log(`  ${pc.cyan("guards:")} ${r.explanation}`);
+        if (r.residualRisk) console.log(`  ${pc.yellow("still exploitable:")} ${r.residualRisk}`);
+        if (r.reason && r.status !== "not-applicable") console.log(`  ${pc.dim(r.reason)}`);
+        if (r.changedFiles.length) console.log(`  ${pc.dim(`changed: ${r.changedFiles.join(", ")}`)}`);
+        if (r.costUsd) console.log(`  ${pc.dim(`model rounds: ${r.attempts}, cost: $${r.costUsd.toFixed(4)}`)}`);
+      }
+      if (results.some((r) => r.status === "mitigated")) {
+        console.log(pc.dim("Changes are left in the working tree for review. Upgrade with `fix` as soon as a fixed release ships."));
+      }
     },
   );
 

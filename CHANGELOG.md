@@ -20,6 +20,7 @@ All notable changes, newest first. No version has been released yet; everything 
 - `--pr` commits to a new branch and opens a pull request with the evidence for each fix.
 
 ### Runtimes and gating
+- `mitigate`: for vulnerabilities with no fixed release, the model adds guards at the project's own call sites (validation, size caps, safer options), verified by the checks and rolled back on failure. Recorded with the added code; reports mark them as mitigated with the remaining risk while the code is in place, and VEX states `inline_mitigations_already_exist`.
 - `runtime`: checks the Node.js and .NET base images in Dockerfiles (pinned or floating tags, `ARG` defaults, registry prefixes) against Node.js's advisory index and security releases and .NET's release CVE lists, warns about end of support, and `--fix` pins them to the newest release of the same line.
 - EPSS scores on every CVE (shown from 1%, used for ordering, in Markdown and SARIF); `--epss-threshold` adds them to `--fail-on risk`.
 - `audit`: lockfiles, runtimes and SBOMs in one run, with a CVE that appears in several components (Brotli in Node.js, .NET and Debian) grouped and each fix listed. Node.js security releases the advisory index lacks get their CVEs from the release changelog, and Debian advisories are matched on the CVEs they name (also for KEV).
