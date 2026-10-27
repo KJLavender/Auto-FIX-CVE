@@ -27,6 +27,7 @@ import { toMarkdown } from "./markdown.js";
 import { mergeSarif, toSarif, type SarifLog } from "./sarif.js";
 import { triageFindings } from "./triage.js";
 import { osDownloadList, readSbom } from "./sbom.js";
+import { enforceScope, scopeSnapshot } from "./scope.js";
 import { openVex, vexStatements, type VexSources } from "./vex.js";
 import { fails, scan, scanDependencies, type FailOn, type IgnoredVuln, type Severity } from "./scan.js";
 import type { Finding } from "./types.js";
@@ -235,6 +236,7 @@ program
   .option("--no-backport", "never port upstream fixes into installed packages")
   .option("--prefer-backport", "backport instead of making a breaking upgrade")
   .option("--ignore-scripts", "do not run packages' install scripts (also turns backports off, which need the project's postinstall)")
+  .option("--allow-changes <path...>", "files or directories a fix may change besides its own (e.g. committed build output)")
   .option("--dry-run", "show the plan and exit without changing anything")
   .option("-y, --yes", "apply the plan without asking (for CI)")
   .option("--allow-dirty", "run even if the git working tree has uncommitted changes")
@@ -254,6 +256,7 @@ program
         backport: boolean;
         preferBackport?: boolean;
         ignoreScripts?: boolean;
+        allowChanges?: string[];
         dryRun?: boolean;
         yes?: boolean;
         allowDirty?: boolean;
@@ -342,25 +345,23 @@ program
       };
       log(`Model: ${DEFAULT_MODEL}`);
       const results: FixResult[] = [];
-      for (const step of plan) {
+      const runStep = async (step: (typeof plan)[number]): Promise<FixResult> => {
         const { finding } = step;
-        log(`\n${finding.dependency.name}@${finding.dependency.version}`);
-        if (step.action === "backport") {
-          results.push(await backportFinding(projectDir, finding, fixOpts));
-          continue;
-        }
+        if (step.action === "backport") return backportFinding(projectDir, finding, fixOpts);
         const result = await fixFinding(projectDir, finding, fixOpts);
-        results.push(result);
         if (result.status === "failed" && policy.backport && canBackport(finding)) {
           log("  upgrade failed; falling back to a backport");
           const fallback = await backportFinding(projectDir, finding, fixOpts);
           const upgradeNote = `upgrade to ${result.to} failed (${result.reason})`;
-          results[results.length - 1] = {
-            ...fallback,
-            reason: [upgradeNote, fallback.reason].filter(Boolean).join("; "),
-            costUsd: fallback.costUsd + result.costUsd,
-          };
+          return { ...fallback, reason: [upgradeNote, fallback.reason].filter(Boolean).join("; "), costUsd: fallback.costUsd + result.costUsd };
         }
+        return result;
+      };
+      for (const step of plan) {
+        log(`\n${step.finding.dependency.name}@${step.finding.dependency.version}`);
+        const snap = await scopeSnapshot(projectDir);
+        const result = await runStep(step);
+        results.push(await enforceScope(projectDir, snap, result, "fixed", manager.manifestFiles, opts.allowChanges ?? [], () => manager.install()));
       }
 
       log("\nRescanning…");
@@ -396,6 +397,7 @@ program
   .option("-y, --yes", "go ahead without asking (for CI)")
   .option("--allow-dirty", "run even if the git working tree has uncommitted changes")
   .option("--ignore-scripts", "do not run packages' install scripts")
+  .option("--allow-changes <path...>", "files or directories a mitigation may change besides the ones it edits")
   .option("--json", "print machine-readable JSON")
   .action(
     async (
@@ -407,6 +409,7 @@ program
         maxAttempts: number;
         maxCost?: number;
         ignoreScripts?: boolean;
+        allowChanges?: string[];
         dryRun?: boolean;
         yes?: boolean;
         allowDirty?: boolean;
@@ -457,7 +460,9 @@ program
       const results: MitigateResult[] = [];
       for (const f of candidates) {
         log(`\n${f.dependency.name}@${f.dependency.version}`);
-        results.push(await mitigateFinding(projectDir, f, { backend, checks, maxAttempts: opts.maxAttempts, log }));
+        const snap = await scopeSnapshot(projectDir);
+        const result = await mitigateFinding(projectDir, f, { backend, checks, maxAttempts: opts.maxAttempts, log });
+        results.push(await enforceScope(projectDir, snap, result, "mitigated", [], opts.allowChanges ?? []));
       }
       if (opts.json) {
         console.log(JSON.stringify({ results }, null, 2));

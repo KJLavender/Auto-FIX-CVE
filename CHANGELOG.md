@@ -21,6 +21,7 @@ All notable changes, newest first. No version has been released yet; everything 
 
 ### Security of the run itself
 - Project commands (installs, checks, anything that runs package code) get only the environment builds need: tokens and keys are not passed, so a compromised release's install script cannot read them. `AUTOFIX_PASS_ENV` names exceptions; git and gh keep the full environment.
+- Scope validation: in a git repository, a fix or mitigation that changes tracked files it did not declare, or adds files in sensitive places (CI config, `.npmrc`, `.env`, hooks), is rolled back completely and reported as failed; `--allow-changes` permits more.
 - `--ignore-scripts` on `fix` and `mitigate`; `AUTOFIX_EXEC_WRAPPER` runs project commands inside a sandbox such as `docker run … sh -c`.
 
 ### Runtimes and gating
