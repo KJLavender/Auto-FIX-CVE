@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { fetchWithRetry } from "../http.js";
 
 export interface CompletionRequest {
   system: string;
@@ -93,4 +94,110 @@ export class CliBackend implements LlmBackend {
     }
     return { output: res.structured_output as T, costUsd: res.total_cost_usd ?? 0 };
   }
+}
+
+interface ChatResponse {
+  choices?: { message?: { content?: string | null } }[];
+  usage?: { prompt_tokens?: number; completion_tokens?: number };
+  error?: { message?: string };
+}
+
+/** The first JSON object in a reply, tolerating Markdown fences and text around it. */
+export function extractJson(text: string): unknown {
+  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(text);
+  const body = (fenced ? fenced[1] : text).trim();
+  try {
+    return JSON.parse(body);
+  } catch {
+    const start = body.indexOf("{");
+    const end = body.lastIndexOf("}");
+    if (start >= 0 && end > start) return JSON.parse(body.slice(start, end + 1));
+    throw new Error("the reply contains no JSON object");
+  }
+}
+
+function missingKeys(output: unknown, schema: object): string[] {
+  const required = (schema as { required?: string[] }).required ?? [];
+  if (!output || typeof output !== "object" || Array.isArray(output)) return ["(not an object)"];
+  return required.filter((k) => !(k in output));
+}
+
+/**
+ * Any OpenAI-compatible chat completions endpoint: a company LLM gateway,
+ * Azure OpenAI behind a proxy, vLLM, Ollama… Structured output is requested
+ * with `response_format` (switchable, since gateways differ in support), and a
+ * reply that is not valid JSON gets one corrective retry.
+ */
+export class OpenAiBackend implements LlmBackend {
+  constructor(
+    private readonly baseUrl = process.env.AUTOFIX_OPENAI_BASE_URL ?? "",
+    private readonly apiKey = process.env.AUTOFIX_OPENAI_API_KEY ?? "",
+    private readonly model = process.env.AUTOFIX_MODEL ?? "",
+    private readonly jsonMode = (process.env.AUTOFIX_OPENAI_JSON ?? "json_schema") as "json_schema" | "json_object" | "none",
+    /** USD per million input / output tokens, so --max-cost works; 0 when unknown. */
+    private readonly price = {
+      input: Number(process.env.AUTOFIX_PRICE_INPUT ?? 0),
+      output: Number(process.env.AUTOFIX_PRICE_OUTPUT ?? 0),
+    },
+  ) {}
+
+  async complete<T>(req: CompletionRequest): Promise<CompletionResult<T>> {
+    if (!this.baseUrl) throw new Error("AUTOFIX_LLM=openai needs AUTOFIX_OPENAI_BASE_URL (e.g. https://gateway.example.com/v1).");
+    if (!this.model) throw new Error("AUTOFIX_LLM=openai needs AUTOFIX_MODEL set to a model the endpoint serves.");
+    // Without native schema support, the schema goes into the instructions instead.
+    const system =
+      this.jsonMode === "json_schema"
+        ? req.system
+        : `${req.system}\n\nReply with only a JSON object that matches this JSON Schema:\n${JSON.stringify(req.schema)}`;
+    const messages: { role: string; content: string }[] = [
+      { role: "system", content: system },
+      { role: "user", content: req.prompt },
+    ];
+    let costUsd = 0;
+    for (let attempt = 1; ; attempt++) {
+      const reply = await this.chat(messages, req.schema);
+      costUsd += reply.cost;
+      try {
+        const output = extractJson(reply.content);
+        const missing = missingKeys(output, req.schema);
+        if (missing.length) throw new Error(`missing required fields: ${missing.join(", ")}`);
+        return { output: output as T, costUsd };
+      } catch (e) {
+        if (attempt >= 2) throw new Error(`${this.model} did not return valid JSON: ${(e as Error).message}\n${reply.content.slice(0, 1000)}`);
+        messages.push(
+          { role: "assistant", content: reply.content },
+          { role: "user", content: `That reply was not usable (${(e as Error).message}). Reply again with only the JSON object.` },
+        );
+      }
+    }
+  }
+
+  private async chat(messages: { role: string; content: string }[], schema: object): Promise<{ content: string; cost: number }> {
+    const responseFormat =
+      this.jsonMode === "json_schema"
+        ? { response_format: { type: "json_schema", json_schema: { name: "result", schema } } }
+        : this.jsonMode === "json_object"
+          ? { response_format: { type: "json_object" } }
+          : {};
+    const res = await fetchWithRetry(`${this.baseUrl.replace(/\/+$/, "")}/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...(this.apiKey ? { authorization: `Bearer ${this.apiKey}` } : {}) },
+      body: JSON.stringify({ model: this.model, messages, ...responseFormat }),
+      signal: AbortSignal.timeout(10 * 60_000),
+    });
+    const body = (await res.json().catch(() => ({}))) as ChatResponse;
+    if (!res.ok) throw new Error(`LLM endpoint returned ${res.status}: ${body.error?.message ?? JSON.stringify(body).slice(0, 500)}`);
+    const content = body.choices?.[0]?.message?.content ?? "";
+    const cost =
+      ((body.usage?.prompt_tokens ?? 0) * this.price.input + (body.usage?.completion_tokens ?? 0) * this.price.output) / 1_000_000;
+    return { content, cost };
+  }
+}
+
+/** The backend chosen by `AUTOFIX_LLM`: `cli` (default, the local CLI) or `openai` (an OpenAI-compatible endpoint). */
+export function createBackend(): LlmBackend {
+  const kind = (process.env.AUTOFIX_LLM ?? "cli").toLowerCase();
+  if (kind === "openai") return new OpenAiBackend();
+  if (kind !== "cli") throw new Error(`Unknown AUTOFIX_LLM '${kind}': use cli or openai.`);
+  return new CliBackend();
 }

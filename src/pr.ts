@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { runFile } from "./fix/exec.js";
 import type { FixResult } from "./fix/upgrade.js";
+import { createMergeRequest, gitlabProject, gitlabToken } from "./gitlab.js";
 import type { Finding } from "./types.js";
 
 async function git(projectDir: string, args: string[]): Promise<string> {
@@ -16,7 +17,13 @@ export async function checkPrPrerequisites(projectDir: string): Promise<string> 
   const base = await git(projectDir, ["branch", "--show-current"]).catch(() => "");
   if (!base) throw new Error("--pr needs a git repository with a checked-out branch.");
   const remote = await git(projectDir, ["remote", "get-url", "origin"]).catch(() => "");
-  if (!/github\.com/.test(remote)) throw new Error("--pr needs an `origin` remote on GitHub.");
+  if (!remote) throw new Error("--pr needs an `origin` remote.");
+  if (!/github\.com/.test(remote)) {
+    // Anything else is treated as GitLab (self-hosted included), opened through its REST API.
+    if (!gitlabProject(remote)) throw new Error(`--pr cannot tell which project \`origin\` (${remote}) is.`);
+    if (!gitlabToken()) throw new Error("--pr on GitLab needs a token with `api` scope in AUTOFIX_GITLAB_TOKEN or GITLAB_TOKEN.");
+    return base;
+  }
   const auth = await runFile("gh", ["auth", "status"], projectDir, 30_000).catch(() => undefined);
   if (!auth?.ok) throw new Error("--pr needs the GitHub CLI (`gh`) installed and logged in.");
   return base;
@@ -84,7 +91,7 @@ export function prBody(results: FixResult[], remaining: Finding[]): string {
   return out.join("\n");
 }
 
-/** Commits the fixed files, pushes the branch and opens a PR. Returns the PR URL. */
+/** Commits the fixed files, pushes the branch and opens a PR (GitHub) or merge request (GitLab). Returns its URL. */
 export async function openPr(
   projectDir: string,
   base: string,
@@ -99,6 +106,12 @@ export async function openPr(
   const details = fixed.map((r) => `- ${r.package} ${change(r)}: ${r.fixedVulns.join(", ")}`).join("\n");
   await git(projectDir, ["commit", "-m", title, "-m", details]);
   await git(projectDir, ["push", "-u", "origin", branch]);
+
+  const remote = await git(projectDir, ["remote", "get-url", "origin"]);
+  const gitlab = /github\.com/.test(remote) ? undefined : gitlabProject(remote);
+  if (gitlab) {
+    return createMergeRequest(gitlab, gitlabToken() ?? "", { source: branch, target: base, title, description: prBody(results, remaining) });
+  }
 
   const bodyFile = path.join(await mkdtemp(path.join(tmpdir(), "autofix-pr-")), "body.md");
   await writeFile(bodyFile, prBody(results, remaining), "utf8");

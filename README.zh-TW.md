@@ -236,7 +236,7 @@ Backport 會在你的 repo 加入這些檔案：
 
 #### Pull request
 
-加上 `--pr` 時，修補會 commit 到新的 `autofix-cve/<timestamp>` 分支、push，再用 `gh` 開成 pull request。開始修復之前會先檢查前置條件：必須有 checkout 的分支、指向 GitHub 的 `origin` remote，以及已登入的 `gh`。PR 內容會列出每個修好的 CVE 及其證據（通過的驗證指令、PoC 判定、OSV 確認）、模型對每處程式碼修改的說明、沒修好的項目與原因，以及重新掃描的結果。如果什麼都沒修好，就刪除這個分支。
+加上 `--pr` 時，修補會 commit 到新的 `autofix-cve/<timestamp>` 分支、push，再開成 pull request：`origin` 在 GitHub 時用 `gh`，其他主機一律當成 GitLab（含自架），**透過 REST API 開 merge request**。開始修復之前會先檢查前置條件：必須有 checkout 的分支、`origin` remote，以及已登入的 `gh` 或放在 `AUTOFIX_GITLAB_TOKEN`（或 `GITLAB_TOKEN`）中、具 `api` 權限的 GitLab token。API 位址取自 remote；在 GitLab CI 裡用 `CI_API_V4_URL`，也可用 `AUTOFIX_GITLAB_API` 指定。PR 內容會列出每個修好的 CVE 及其證據（通過的驗證指令、PoC 判定、OSV 確認）、模型對每處程式碼修改的說明、沒修好的項目與原因，以及重新掃描的結果。如果什麼都沒修好，就刪除這個分支。
 
 ### Runtime（Dockerfile）
 
@@ -363,6 +363,21 @@ LLM 透過本機 CLI 以 headless 模式呼叫（`-p --output-format json --json
 | `AUTOFIX_PNPM` / `AUTOFIX_YARN` | `pnpm` / `yarn` | pnpm / Yarn 指令，例如 `npx pnpm@9` |
 
 上面範例的實際成本：每次升級修正約 $0.02–0.03，每次 backport 約 $0.07（兩個 PoC 加上移植）。
+
+#### OpenAI 相容端點
+
+無法使用本機 CLI 的情況（例如在 CI 中走公司的 LLM gateway），設定 `AUTOFIX_LLM=openai` 就會改呼叫任何 OpenAI 相容的 `/chat/completions` 端點：
+
+| 變數 | 預設值 | |
+|---|---|---|
+| `AUTOFIX_LLM` | `cli` | `cli` 或 `openai` |
+| `AUTOFIX_OPENAI_BASE_URL` | （必填） | 例如 `https://gateway.example.com/v1` |
+| `AUTOFIX_OPENAI_API_KEY` | 無 | 以 `Authorization: Bearer …` 送出 |
+| `AUTOFIX_MODEL` | （必填） | 端點提供的模型 |
+| `AUTOFIX_OPENAI_JSON` | `json_schema` | `json_schema`、`json_object`，或 gateway 不支援 `response_format` 時用 `none`，改把 schema 寫進指示中 |
+| `AUTOFIX_PRICE_INPUT` / `AUTOFIX_PRICE_OUTPUT` | `0` | 每百萬 token 的美元價格，讓 `--max-cost` 能計算花費 |
+
+回覆即使包在 Markdown 區塊或夾雜文字中也能解析；不是合法 JSON 或缺少必要欄位的回覆會重試一次，仍失敗才讓這次修復失敗並回滾。`doctor` 會檢查端點能否用設定的 key 回應。
 
 ## 常見問題
 

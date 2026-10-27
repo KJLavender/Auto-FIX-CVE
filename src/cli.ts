@@ -16,7 +16,7 @@ import { detectChecks } from "./fix/context.js";
 import { run } from "./fix/exec.js";
 import { FIXABLE, managerFor } from "./fix/managers.js";
 import { fixFinding, planFinding, readInstalledVersion, verifyBaseline, type FixResult } from "./fix/upgrade.js";
-import { BudgetBackend, CliBackend, DEFAULT_MODEL, type LlmBackend } from "./llm/backend.js";
+import { BudgetBackend, createBackend, DEFAULT_MODEL, type LlmBackend } from "./llm/backend.js";
 import { detectLockfiles, discoverProjects } from "./lockfile/index.js";
 import { OsvClient } from "./osv/client.js";
 import { abandonBranch, checkPrPrerequisites, createBranch, openPr } from "./pr.js";
@@ -108,7 +108,7 @@ program
 
     const log = (m: string) => console.error(pc.dim(m));
     // One budget across all projects of a recursive scan.
-    const triageBackend = withBudget(new CliBackend(), opts.maxCost);
+    const triageBackend = withBudget(createBackend(), opts.maxCost);
     const all: { project: string; lockfile: string; findings: Finding[] }[] = [];
     const logs: SarifLog[] = [];
     for (const { dir: projectDir, lock } of projects) {
@@ -273,7 +273,7 @@ program
         ...policy,
         manager,
         maxAttempts: opts.maxAttempts,
-        backend: withBudget(new CliBackend(), opts.maxCost),
+        backend: withBudget(createBackend(), opts.maxCost),
         osv: new OsvClient(),
         log,
       };

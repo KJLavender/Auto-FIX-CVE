@@ -236,7 +236,7 @@ Files a backport adds to your repo:
 
 #### Pull requests
 
-With `--pr`, the fixes are committed to a new `autofix-cve/<timestamp>` branch, pushed, and opened as a pull request with `gh`. Prerequisites are checked before anything runs: a checked-out branch, an `origin` remote on GitHub, and a logged-in `gh`. The PR body lists every fixed CVE with its evidence (checks that passed, PoC verdicts, OSV confirmation), the model's explanation of each code change, anything that was not fixed and why, and the rescan result. If nothing could be fixed, the branch is deleted.
+With `--pr`, the fixes are committed to a new `autofix-cve/<timestamp>` branch, pushed, and opened as a pull request: with `gh` when `origin` is on GitHub, and as a **merge request through the REST API** for any other host, which is treated as GitLab (self-hosted included). Prerequisites are checked before anything runs: a checked-out branch, an `origin` remote, and either a logged-in `gh` or a GitLab token with `api` scope in `AUTOFIX_GITLAB_TOKEN` (or `GITLAB_TOKEN`). The API root comes from the remote, from `CI_API_V4_URL` inside GitLab CI, or from `AUTOFIX_GITLAB_API`. The PR body lists every fixed CVE with its evidence (checks that passed, PoC verdicts, OSV confirmation), the model's explanation of each code change, anything that was not fixed and why, and the rescan result. If nothing could be fixed, the branch is deleted.
 
 ### Runtime (Dockerfiles)
 
@@ -363,6 +363,21 @@ The LLM is called through a local CLI in headless mode (`-p --output-format json
 | `AUTOFIX_PNPM` / `AUTOFIX_YARN` | `pnpm` / `yarn` | pnpm / Yarn command, e.g. `npx pnpm@9` |
 
 Typical cost in the examples above: $0.02–0.03 per upgrade repair, about $0.07 per backport (two PoCs plus the port).
+
+#### OpenAI-compatible endpoints
+
+Where a local CLI is not an option, for example a company LLM gateway in CI, set `AUTOFIX_LLM=openai` to call any OpenAI-compatible `/chat/completions` endpoint instead:
+
+| Variable | Default | |
+|---|---|---|
+| `AUTOFIX_LLM` | `cli` | `cli` or `openai` |
+| `AUTOFIX_OPENAI_BASE_URL` | (required) | e.g. `https://gateway.example.com/v1` |
+| `AUTOFIX_OPENAI_API_KEY` | none | sent as `Authorization: Bearer …` |
+| `AUTOFIX_MODEL` | (required) | a model the endpoint serves |
+| `AUTOFIX_OPENAI_JSON` | `json_schema` | `json_schema`, `json_object`, or `none` when the gateway does not support `response_format`; the schema then goes into the instructions |
+| `AUTOFIX_PRICE_INPUT` / `AUTOFIX_PRICE_OUTPUT` | `0` | USD per million tokens, so `--max-cost` can count spending |
+
+Replies are parsed even when wrapped in Markdown fences or text, and a reply that is not valid JSON, or lacks a required field, gets one corrective retry before the fix fails and rolls back. `doctor` checks that the endpoint answers with the configured key.
 
 ## FAQ
 

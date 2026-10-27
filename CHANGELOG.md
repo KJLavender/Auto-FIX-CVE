@@ -21,6 +21,8 @@ All notable changes, newest first. No version has been released yet; everything 
 ### Runtimes and gating
 - `runtime`: checks the Node.js and .NET base images in Dockerfiles (pinned or floating tags, `ARG` defaults, registry prefixes) against Node.js's advisory index and security releases and .NET's release CVE lists, warns about end of support, and `--fix` pins them to the newest release of the same line.
 - `--fail-on risk`: fail only on vulnerabilities in CISA's Known Exploited Vulnerabilities catalog, or high/critical ones that the code reaches. Known-exploited ones are tagged in every output.
+- LLM: `AUTOFIX_LLM=openai` calls any OpenAI-compatible endpoint (company gateways, vLLM, Ollama) with structured output, a corrective retry, and token pricing for `--max-cost`.
+- `--pr` opens GitLab merge requests (self-hosted included) through the REST API.
 - Every outside service (OSV, npm, PyPI, crates.io, GitHub, KEV, runtime release data) can be pointed at a mirror or a local file, for networks behind Nexus or offline.
 - Checks run Angular's `ng test` once (`--watch=false`) instead of waiting forever in watch mode.
 
