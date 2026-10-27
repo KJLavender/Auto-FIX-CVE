@@ -6,11 +6,12 @@ import { normalizeName } from "../versions.js";
 import { readCargoLock } from "./cargo.js";
 import { readGoMod } from "./go.js";
 import { readNpmLockfile } from "./npm.js";
+import { readNugetLock } from "./nuget.js";
 import { readPnpmLockfile } from "./pnpm.js";
 import { readPipfileLock, readPoetryLockfile, readRequirements, readUvLockfile } from "./python.js";
 import { readYarnLockfile } from "./yarn.js";
 
-export type LockKind = "npm" | "pnpm" | "yarn" | "uv" | "poetry" | "pipenv" | "requirements" | "go" | "cargo";
+export type LockKind = "npm" | "pnpm" | "yarn" | "uv" | "poetry" | "pipenv" | "requirements" | "go" | "cargo" | "nuget";
 
 export interface Lockfile {
   kind: LockKind;
@@ -30,6 +31,9 @@ const DETECT: { file: string; kind: LockKind }[] = [
   { file: "requirements.txt", kind: "requirements" },
   { file: "go.mod", kind: "go" },
   { file: "Cargo.lock", kind: "cargo" },
+  { file: "packages.lock.json", kind: "nuget" },
+  // Written by every `dotnet restore`, for the many projects without a NuGet lockfile.
+  { file: "obj/project.assets.json", kind: "nuget" },
 ];
 
 const JS_KINDS: LockKind[] = ["npm", "pnpm", "yarn"];
@@ -51,7 +55,8 @@ export function detectLockfiles(projectDir: string): LockRef[] {
   const py = found.find((d) => PY_KINDS.includes(d.kind));
   const go = found.find((d) => d.kind === "go");
   const rust = found.find((d) => d.kind === "cargo");
-  return [js, py, go, rust].filter((d): d is LockRef => d !== undefined);
+  const dotnet = found.find((d) => d.kind === "nuget");
+  return [js, py, go, rust, dotnet].filter((d): d is LockRef => d !== undefined);
 }
 
 export function detectLockfile(projectDir: string): LockRef {
@@ -60,7 +65,7 @@ export function detectLockfile(projectDir: string): LockRef {
   return found;
 }
 
-const SKIP_DIRS = new Set(["node_modules", ".git", ".venv", "venv", "env", "__pycache__", "dist", "build", "site-packages", ".tox", "coverage"]);
+const SKIP_DIRS = new Set(["node_modules", ".git", ".venv", "venv", "env", "__pycache__", "dist", "build", "site-packages", ".tox", "coverage", "bin", "obj"]);
 
 /** Directories under `root` (inclusive) that contain a lockfile. */
 export async function discoverProjects(root: string, maxDepth = 6): Promise<{ dir: string; lock: LockRef }[]> {
@@ -90,6 +95,7 @@ export async function readLockfile(projectDir: string, ref: LockRef = detectLock
     requirements: () => readRequirements(projectDir, file),
     go: () => readGoMod(projectDir),
     cargo: () => readCargoLock(projectDir),
+    nuget: () => readNugetLock(projectDir, file),
   };
   return { kind, file, deps: await readers[kind]() };
 }
@@ -117,6 +123,10 @@ export function lockfileLine(kind: LockKind, lines: string[], name: string, vers
         const [mod, ver] = words[0] === "require" ? words.slice(1) : words;
         return mod === name && ver?.startsWith("v") === true;
       }
+      case "nuget":
+        // `"Newtonsoft.Json": {` in packages.lock.json, `"Newtonsoft.Json/13.0.1": {` in project.assets.json.
+        // (Lines like `"Newtonsoft.Json": "13.0.1"` are another package's dependency list, not the entry.)
+        return [`"${name}": {`, `"${name}/${version}": {`].some((p) => t.toLowerCase().startsWith(p.toLowerCase()));
       case "requirements":
         return normalizeName("PyPI", t.match(/^([A-Za-z0-9][A-Za-z0-9._-]*)/)?.[1] ?? "") === name && t.includes(version);
     }

@@ -1,6 +1,24 @@
 import semver from "semver";
 
-export type Ecosystem = "npm" | "PyPI" | "Go" | "crates.io";
+export type Ecosystem = "npm" | "PyPI" | "Go" | "crates.io" | "NuGet";
+
+const NUGET = /^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:\.(\d+))?(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/;
+
+/** NuGet versions: SemVer 2, plus legacy ones with fewer or four numeric parts (`4.3`, `1.0.0.1`). */
+export function parseNuget(v: string): { parts: [number, number, number, number]; pre?: string } | undefined {
+  const m = NUGET.exec(v.trim());
+  if (!m) return undefined;
+  return { parts: [Number(m[1]), Number(m[2] ?? 0), Number(m[3] ?? 0), Number(m[4] ?? 0)], pre: m[5] };
+}
+
+export function compareNuget(a: string, b: string): number {
+  const x = parseNuget(a);
+  const y = parseNuget(b);
+  if (!x || !y) return a.localeCompare(b);
+  for (let i = 0; i < 4; i++) if (x.parts[i] !== y.parts[i]) return x.parts[i] < y.parts[i] ? -1 : 1;
+  // Pre-release labels order like SemVer's (and NuGet compares them case-insensitively).
+  return semver.compare(`0.0.0${x.pre ? `-${x.pre.toLowerCase()}` : ""}`, `0.0.0${y.pre ? `-${y.pre.toLowerCase()}` : ""}`);
+}
 
 /** Go module versions are semver with a `v` prefix and sometimes `+incompatible`. */
 function goSemver(v: string): string {
@@ -70,10 +88,12 @@ export function comparePep440(a: string, b: string): number {
 }
 
 export function isValidVersion(eco: Ecosystem, v: string): boolean {
+  if (eco === "NuGet") return parseNuget(v) !== undefined;
   return eco === "PyPI" ? parsePep440(v) !== undefined : semver.valid(sv(eco, v)) !== null;
 }
 
 export function compareVersions(eco: Ecosystem, a: string, b: string): number {
+  if (eco === "NuGet") return compareNuget(a, b);
   return eco === "PyPI" ? comparePep440(a, b) : semver.compare(sv(eco, a), sv(eco, b));
 }
 
@@ -83,6 +103,12 @@ export function compareVersions(eco: Ecosystem, a: string, b: string): number {
  * changed minor below 1.0) is treated as breaking, which matches common practice.
  */
 export function isBreakingUpgrade(eco: Ecosystem, from: string, to: string): boolean {
+  if (eco === "NuGet") {
+    const a = parseNuget(from);
+    const b = parseNuget(to);
+    if (!a || !b) return true;
+    return a.parts[0] !== b.parts[0] || (a.parts[0] === 0 && a.parts[1] !== b.parts[1]);
+  }
   if (eco !== "PyPI") {
     const a = semver.parse(sv(eco, from));
     const b = semver.parse(sv(eco, to));

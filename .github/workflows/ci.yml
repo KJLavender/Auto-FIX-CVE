@@ -135,3 +135,35 @@ jobs:
             if (left.length) { console.error("still vulnerable:", left); process.exit(1); }
             console.log("remaining:", names);
           '
+
+  e2e-dotnet:
+    # Real fix run on a .NET project: the PackageReference is raised, restored and verified with dotnet build.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 8.0.x
+      - run: npm ci && npm run build
+      - name: Fix the .NET fixture
+        run: |
+          D="$RUNNER_TEMP/dotnetapp"
+          cp -r test/fixtures/dotnet-app "$D"
+          cd "$D"
+          dotnet restore
+          printf 'bin/\nobj/\n' > .gitignore
+          git init -q && git add -A && git -c user.name=ci -c user.email=ci@localhost commit -qm base
+          node "$GITHUB_WORKSPACE/dist/cli.js" fix . --only System.Text.Encodings.Web --yes
+          grep 'System.Text.Encodings.Web' App.csproj
+      - name: Rescan shows System.Text.Encodings.Web fixed and Newtonsoft.Json still reported
+        run: |
+          node dist/cli.js scan "$RUNNER_TEMP/dotnetapp" --json > scan.json || true
+          node -e '
+            const names = JSON.parse(require("fs").readFileSync("scan.json", "utf8")).map(f => f.dependency.name);
+            if (names.includes("System.Text.Encodings.Web")) { console.error("still vulnerable:", names); process.exit(1); }
+            if (!names.includes("Newtonsoft.Json")) { console.error("expected Newtonsoft.Json to remain:", names); process.exit(1); }
+            console.log("remaining:", names);
+          '

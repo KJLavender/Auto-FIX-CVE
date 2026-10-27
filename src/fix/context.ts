@@ -19,6 +19,14 @@ export async function detectChecks(projectDir: string, kind: LockKind): Promise<
     const cargo = process.env.AUTOFIX_CARGO ?? "cargo";
     return [`${cargo} build`, `${cargo} test`];
   }
+  if (kind === "nuget") {
+    const dotnet = process.env.AUTOFIX_DOTNET ?? "dotnet";
+    // `dotnet test` only when this is a test project (it references the test SDK).
+    const projects = (await readdir(projectDir)).filter((f) => /\.(cs|fs|vb)proj$/.test(f));
+    const sources = await Promise.all(projects.map((p) => readFile(path.join(projectDir, p), "utf8")));
+    const isTest = sources.some((s) => /Microsoft\.NET\.Test\.Sdk/i.test(s));
+    return [`${dotnet} build`, ...(isTest ? [`${dotnet} test --no-build`] : [])];
+  }
   if (kind === "go") {
     const go = process.env.AUTOFIX_GO ?? "go";
     return [`${go} build ./...`, `${go} test ./...`];

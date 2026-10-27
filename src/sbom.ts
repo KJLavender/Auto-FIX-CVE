@@ -8,7 +8,7 @@ export interface SbomDeps {
   skipped: Record<string, number>;
 }
 
-const PURL_ECOSYSTEM: Record<string, Ecosystem> = { npm: "npm", pypi: "PyPI", golang: "Go", cargo: "crates.io" };
+const PURL_ECOSYSTEM: Record<string, Ecosystem> = { npm: "npm", pypi: "PyPI", golang: "Go", cargo: "crates.io", nuget: "NuGet" };
 
 /** `pkg:npm/%40angular/core@20.1.0?x=y` → ecosystem, name and version; undefined for other types. */
 export function parsePurl(purl: string): { type: string; ecosystem?: Ecosystem; name: string; version: string } | undefined {

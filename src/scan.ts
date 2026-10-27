@@ -1,5 +1,6 @@
 import { appliedBackports, mitigatedIds, readManifest, ruleActive } from "./backport/manifest.js";
 import { findUsages } from "./impact/analyze.js";
+import { findCsharpUsages } from "./impact/csharp.js";
 import { loadKev, markExploited } from "./kev.js";
 import { findGoUsages } from "./impact/go.js";
 import { findPythonUsages } from "./impact/python.js";
@@ -122,7 +123,7 @@ export async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) =>
 
 export async function scan(projectDir: string, options: ScanOptions): Promise<Finding[]> {
   const lock = await readLockfile(projectDir, options.lock);
-  const finders = { npm: findUsages, PyPI: findPythonUsages, Go: findGoUsages, "crates.io": findRustUsages };
+  const finders = { npm: findUsages, PyPI: findPythonUsages, Go: findGoUsages, "crates.io": findRustUsages, NuGet: findCsharpUsages };
   const finder = finders[lock.deps[0]?.ecosystem ?? "npm"];
   return scanDependencies(lock.deps, projectDir, options, (wanted) => finder(projectDir, wanted));
 }

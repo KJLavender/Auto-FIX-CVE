@@ -14,6 +14,7 @@
 | Python | uv、Poetry、Pipenv、固定版本的 `requirements.txt` | import 分析、`PyYAML` → `yaml` 對應 | uv、Poetry、Pipenv | uv constraints | — |
 | Go | `go.mod` | import 分析 + advisory 的受影響函式清單 | `go.mod` + `go mod tidy` | 支援（明確 require） | — |
 | Rust | `Cargo.lock` | `use` 分析 + RustSec 函式清單 | `Cargo.toml` + `cargo update` | `cargo update --precise` | — |
+| .NET（C#） | `packages.lock.json`、`obj/project.assets.json` | `using` / 完整限定名稱分析 | `.csproj` 或 `Directory.Packages.props` + `dotnet restore` | 直接加 `PackageReference` 釘版 | — |
 
 ## 運作方式
 
@@ -36,7 +37,7 @@
 
 ## 使用方式
 
-需要 Node.js ≥ 22.12 與 lockfile：`package-lock.json` / `npm-shrinkwrap.json`（v2/v3）、`pnpm-lock.yaml`（v6–v9）或 `yarn.lock`（v1 或 Berry）。Python 則是 `uv.lock`、`poetry.lock`、`Pipfile.lock` 或固定版本的 `requirements.txt`（會利用 pip-compile / `uv export` 的 `# via` 註解重建依賴圖）。Go 則是 `go.mod`，Rust 是 `Cargo.lock`。上述 lockfile 除了單純的 `requirements.txt` 以外，`fix` 都支援。Go 的作法是在 `go.mod` 提高 require 的版本（間接依賴也可以），執行 `go mod tidy`，再以 `go build ./...` 和 `go test ./...` 驗證。Rust 會改寫 `Cargo.toml` 的版本需求（`=` 精確鎖定的維持精確），遞移的 crate 則執行 `cargo update -p crate@old --precise new`；如果會破壞其他 crate 的版本需求，cargo 會直接拒絕。最後以 `cargo build` 和 `cargo test` 驗證。`fix` 另外需要本機的 LLM CLI（見 [LLM backend](#llm-backend)）。
+需要 Node.js ≥ 22.12 與 lockfile：`package-lock.json` / `npm-shrinkwrap.json`（v2/v3）、`pnpm-lock.yaml`（v6–v9）或 `yarn.lock`（v1 或 Berry）。Python 則是 `uv.lock`、`poetry.lock`、`Pipfile.lock` 或固定版本的 `requirements.txt`（會利用 pip-compile / `uv export` 的 `# via` 註解重建依賴圖）。Go 則是 `go.mod`，Rust 是 `Cargo.lock`。.NET 是 `packages.lock.json`，或每次 `dotnet restore` 都會產生的 `obj/project.assets.json`，所以沒有 NuGet lockfile 的專案也能用（`PrivateAssets="all"` 的套件，例如 analyzer，視為只在 build 時使用）。上述 lockfile 除了單純的 `requirements.txt` 以外，`fix` 都支援。Go 的作法是在 `go.mod` 提高 require 的版本（間接依賴也可以），執行 `go mod tidy`，再以 `go build ./...` 和 `go test ./...` 驗證。Rust 會改寫 `Cargo.toml` 的版本需求（`=` 精確鎖定的維持精確），遞移的 crate 則執行 `cargo update -p crate@old --precise new`；如果會破壞其他 crate 的版本需求，cargo 會直接拒絕。最後以 `cargo build` 和 `cargo test` 驗證。.NET 會提高專案檔中 `PackageReference` 的版本（使用 Central Package Management 時則改 `Directory.Packages.props` 的 `PackageVersion`），間接套件則以修好的版本直接加一筆參考來釘版，接著執行 `dotnet restore`（有 lockfile 時加上 `--force-evaluate`），再以 `dotnet build` 驗證，測試專案另外跑 `dotnet test`。C# 的可達性以命名空間判斷：`using` 指示詞、別名與完整限定名稱。`fix` 另外需要本機的 LLM CLI（見 [LLM backend](#llm-backend)）。
 
 不用安裝，直接從 GitHub 執行：
 
@@ -124,7 +125,7 @@ trivy image --format cyclonedx -o api.cdx.json harbor.example.com/pdmp/api:<部�
 node dist/cli.js scan . --sbom api.cdx.json --baseline api.baseline.json --fail-on risk
 ```
 
-pipeline 只在有人 push 時才檢查程式碼。新的 CVE 公布時，已經在跑的映像要等到下一次改動才會被重新檢查。`--sbom` 改為掃描 CycloneDX 或 SPDX JSON 格式的 SBOM，而不是 lockfile：可以是 `trivy image` 的輸出，或 Harbor 為映像產生的 SBOM。排程對「部署中映像」的 SBOM 執行並搭配 baseline，只有出現**新的**問題時 job 才會失敗，例如某個套件剛被列入 KEV 清單。SBOM 中的 npm、PyPI、Go 和 crates.io 套件都會檢查，也會算出每個間接套件是由哪個直接依賴帶進來的。OS 套件（`deb`、`rpm`、`apk`）和其他類型只計數、不檢查，請交給 Trivy。因為沒有原始碼，可達性無法判斷，所以請用 `--fail-on any`、`high` 或 `risk`（此時等於「已知被利用」）。`[dir]` 裡 `.autofix-cve.json` 的 ignore 規則照樣有效。Node.js 和 .NET runtime 常常不在 SBOM 裡，請搭配 `runtime` 一起用。
+pipeline 只在有人 push 時才檢查程式碼。新的 CVE 公布時，已經在跑的映像要等到下一次改動才會被重新檢查。`--sbom` 改為掃描 CycloneDX 或 SPDX JSON 格式的 SBOM，而不是 lockfile：可以是 `trivy image` 的輸出，或 Harbor 為映像產生的 SBOM。排程對「部署中映像」的 SBOM 執行並搭配 baseline，只有出現**新的**問題時 job 才會失敗，例如某個套件剛被列入 KEV 清單。SBOM 中的 npm、PyPI、Go、crates.io 和 NuGet 套件都會檢查，也會算出每個間接套件是由哪個直接依賴帶進來的。OS 套件（`deb`、`rpm`、`apk`）和其他類型只計數、不檢查，請交給 Trivy。因為沒有原始碼，可達性無法判斷，所以請用 `--fail-on any`、`high` 或 `risk`（此時等於「已知被利用」）。`[dir]` 裡 `.autofix-cve.json` 的 ignore 規則照樣有效。Node.js 和 .NET runtime 常常不在 SBOM 裡，請搭配 `runtime` 一起用。
 
 ### 接受的風險
 
@@ -424,6 +425,7 @@ npm run dev -- scan test/fixtures/vuln-app
 - [x] 掃描 Go module（`go.mod`、import 分析、以 advisory 列出的受影響函式判斷可達性）
 - [x] 修復 Go module（`go.mod` + `go mod tidy`，在 CI 中用 Go 工具鏈實際驗證）
 - [x] 掃描與修復 Rust crate（`Cargo.lock`、`use` 樹、RustSec 的函式清單、`cargo update --precise`，在 CI 中用 cargo 實際驗證）
+- [x] 掃描與修復 .NET 專案（`packages.lock.json` / `project.assets.json`、Central Package Management，在 CI 中用 dotnet 實際驗證）
 - [ ] Python backport：刻意暫不實作，原因有兩個。Python 的套件管理器沒有 post-install hook，修改 site-packages 的修補會在下一次 `uv sync` / `pip install` 時悄悄消失；而且 Python 沒有像 Node 那樣的內建 permission sandbox，執行模型根據不可信的 advisory 寫出的 PoC 時，無法做到同等程度的隔離。
 
 ## 授權

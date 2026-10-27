@@ -5,6 +5,7 @@ All notable changes, newest first. No version has been released yet; everything 
 ## Unreleased
 
 ### Ecosystems
+- **.NET**: scan `packages.lock.json` or `obj/project.assets.json` (so projects without a NuGet lockfile work), with NuGet version ordering and C# `using` analysis. Fix by raising `PackageReference` / Central Package Management versions, pinning transitive packages with a direct reference, `dotnet restore`, then `dotnet build` and `dotnet test`.
 - **Rust**: scan and fix `Cargo.lock` projects. `Cargo.toml` requirements are raised (exact `=` pins stay exact), transitive crates move with `cargo update --precise`, and `use` trees are analysed for reachability.
 - **Go**: scan and fix `go.mod` modules, including indirect requirements and `replace` directives, with `go mod tidy`.
 - **Python**: scan uv, Poetry, Pipenv and pinned `requirements.txt` (the graph is rebuilt from `# via` comments). Fix uv, Poetry and Pipenv projects. PEP 440 versions, and import analysis that maps distributions to modules (`PyYAML` → `yaml`).

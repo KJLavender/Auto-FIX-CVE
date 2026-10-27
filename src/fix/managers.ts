@@ -9,6 +9,7 @@ import type { Dependency } from "../types.js";
 import { changelogExcerpt, exportShape } from "./context.js";
 import { run, type CommandResult } from "./exec.js";
 import { rewriteTableEntries } from "./toml-edit.js";
+import { NugetManager } from "./nuget-manager.js";
 import { PipenvManager, PoetryManager, UvManager } from "./python-managers.js";
 
 export { splitRequirement } from "./python-managers.js";
@@ -259,7 +260,7 @@ class CargoManager implements PackageManager {
 }
 
 /** Package managers `fix` can drive; others can be scanned but not fixed yet. */
-export const FIXABLE: LockKind[] = ["npm", "pnpm", "yarn", "uv", "poetry", "pipenv", "go", "cargo"];
+export const FIXABLE: LockKind[] = ["npm", "pnpm", "yarn", "uv", "poetry", "pipenv", "go", "cargo", "nuget"];
 
 export function managerFor(kind: LockKind, dir: string): PackageManager {
   if (kind === "npm") return new JsManager(dir);
@@ -267,6 +268,7 @@ export function managerFor(kind: LockKind, dir: string): PackageManager {
   if (kind === "yarn") return new YarnManager(dir);
   if (kind === "go") return new GoManager(dir);
   if (kind === "cargo") return new CargoManager(dir);
+  if (kind === "nuget") return new NugetManager(dir);
   if (kind === "uv") return new UvManager(dir);
   if (kind === "poetry") return new PoetryManager(dir);
   if (kind === "pipenv") return new PipenvManager(dir);

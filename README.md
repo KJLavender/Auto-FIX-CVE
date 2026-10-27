@@ -14,6 +14,7 @@ On eight real security upgrades that break code (marked, PyJWT, urllib3, Werkzeu
 | Python | uv, Poetry, Pipenv, pinned `requirements.txt` | import analysis, `PyYAML` → `yaml` mapping | uv, Poetry, Pipenv | uv constraints | — |
 | Go | `go.mod` | import analysis + advisory's vulnerable-function list | `go.mod` + `go mod tidy` | yes (explicit require) | — |
 | Rust | `Cargo.lock` | `use` analysis + RustSec function list | `Cargo.toml` + `cargo update` | `cargo update --precise` | — |
+| .NET (C#) | `packages.lock.json`, `obj/project.assets.json` | `using` / qualified-name analysis | `.csproj` or `Directory.Packages.props` + `dotnet restore` | direct `PackageReference` pin | — |
 
 ## How it works
 
@@ -36,7 +37,7 @@ What sets it apart:
 
 ## Usage
 
-Requires Node.js ≥ 22.12 and a lockfile: `package-lock.json` / `npm-shrinkwrap.json` (v2/v3), `pnpm-lock.yaml` (v6–v9) or `yarn.lock` (v1 or Berry). For Python: `uv.lock`, `poetry.lock`, `Pipfile.lock` or a pinned `requirements.txt` (pip-compile / `uv export` `# via` comments are used to rebuild the dependency graph). For Go: `go.mod`. For Rust: `Cargo.lock`. `fix` works with every lockfile above except a plain `requirements.txt`. For Go it raises the requirement in `go.mod` (indirect ones too), runs `go mod tidy`, and verifies with `go build ./...` and `go test ./...`. For Rust it rewrites the requirement in `Cargo.toml` (exact `=` pins stay exact) or, for a transitive crate, runs `cargo update -p crate@old --precise new`, which cargo refuses if another crate's requirement would break; then `cargo build` and `cargo test`. `fix` also needs a local LLM CLI (see [LLM backend](#llm-backend)).
+Requires Node.js ≥ 22.12 and a lockfile: `package-lock.json` / `npm-shrinkwrap.json` (v2/v3), `pnpm-lock.yaml` (v6–v9) or `yarn.lock` (v1 or Berry). For Python: `uv.lock`, `poetry.lock`, `Pipfile.lock` or a pinned `requirements.txt` (pip-compile / `uv export` `# via` comments are used to rebuild the dependency graph). For Go: `go.mod`. For Rust: `Cargo.lock`. For .NET: `packages.lock.json`, or `obj/project.assets.json`, which every `dotnet restore` writes, so projects without a NuGet lockfile work too (packages with `PrivateAssets="all"`, such as analyzers, count as build-only). `fix` works with every lockfile above except a plain `requirements.txt`. For Go it raises the requirement in `go.mod` (indirect ones too), runs `go mod tidy`, and verifies with `go build ./...` and `go test ./...`. For Rust it rewrites the requirement in `Cargo.toml` (exact `=` pins stay exact) or, for a transitive crate, runs `cargo update -p crate@old --precise new`, which cargo refuses if another crate's requirement would break; then `cargo build` and `cargo test`. For .NET it raises the `PackageReference` version in the project file (or the `PackageVersion` in `Directory.Packages.props` under Central Package Management), pins a transitive package by referencing it directly at the fixed version, runs `dotnet restore` (with `--force-evaluate` when there is a lockfile), and verifies with `dotnet build`, plus `dotnet test` for test projects. C# reachability is by namespace: `using` directives, aliases and fully qualified names. `fix` also needs a local LLM CLI (see [LLM backend](#llm-backend)).
 
 Run it straight from GitHub, no install needed:
 
@@ -124,7 +125,7 @@ trivy image --format cyclonedx -o api.cdx.json harbor.example.com/pdmp/api:<depl
 node dist/cli.js scan . --sbom api.cdx.json --baseline api.baseline.json --fail-on risk
 ```
 
-A pipeline only checks code when someone pushes. When a new CVE is published, the images already running are not looked at again until the next change. `--sbom` scans a CycloneDX or SPDX JSON SBOM instead of lockfiles: the output of `trivy image`, or the SBOM Harbor generates for an image. Run it on a schedule against the SBOMs of what is deployed, with a baseline, and the job fails only when something **new** appears, such as a package that just landed in the KEV catalog. The npm, PyPI, Go and crates.io packages in the SBOM are checked, including which direct dependency pulls each transitive one in. OS packages (`deb`, `rpm`, `apk`) and other types are counted but not checked; leave those to Trivy. With no source code, reachability is unknown, so use `--fail-on any`, `high` or `risk` (which then means known-exploited). `.autofix-cve.json` ignore rules in `[dir]` still apply. Combine with `runtime` for the Node.js and .NET runtimes, which SBOMs often miss.
+A pipeline only checks code when someone pushes. When a new CVE is published, the images already running are not looked at again until the next change. `--sbom` scans a CycloneDX or SPDX JSON SBOM instead of lockfiles: the output of `trivy image`, or the SBOM Harbor generates for an image. Run it on a schedule against the SBOMs of what is deployed, with a baseline, and the job fails only when something **new** appears, such as a package that just landed in the KEV catalog. The npm, PyPI, Go, crates.io and NuGet packages in the SBOM are checked, including which direct dependency pulls each transitive one in. OS packages (`deb`, `rpm`, `apk`) and other types are counted but not checked; leave those to Trivy. With no source code, reachability is unknown, so use `--fail-on any`, `high` or `risk` (which then means known-exploited). `.autofix-cve.json` ignore rules in `[dir]` still apply. Combine with `runtime` for the Node.js and .NET runtimes, which SBOMs often miss.
 
 ### Accepted risks
 
@@ -424,6 +425,7 @@ The fixtures under `test/fixtures/` are intentionally vulnerable. Copy them to a
 - [x] Scan Go modules (`go.mod`, import analysis, the advisory's vulnerable-function list for reachability)
 - [x] Fix Go modules (`go.mod` + `go mod tidy`, checked in CI with the Go toolchain)
 - [x] Scan and fix Rust crates (`Cargo.lock`, `use` trees, RustSec function lists, `cargo update --precise`; checked in CI with cargo)
+- [x] Scan and fix .NET projects (`packages.lock.json` / `project.assets.json`, Central Package Management; checked in CI with dotnet)
 - [ ] Python backports. Deliberately not done yet, for two reasons. Python package managers have no post-install hook, so a patch to site-packages would silently disappear on the next `uv sync` / `pip install`. And Python has no built-in permission sandbox like Node's, so running a model-written PoC derived from untrusted advisory text could not be contained to the same standard.
 
 ## License

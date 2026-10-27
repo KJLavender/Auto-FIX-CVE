@@ -24,6 +24,7 @@ const tools = (): Tool[] => [
   { name: "pipenv", probe: `${process.env.AUTOFIX_PIPENV ?? "pipenv"} --version`, enables: "fix for Pipenv projects", env: "AUTOFIX_PIPENV" },
   { name: "go", probe: `${process.env.AUTOFIX_GO ?? "go"} version`, enables: "fix for Go modules", env: "AUTOFIX_GO" },
   { name: "cargo", probe: `${process.env.AUTOFIX_CARGO ?? "cargo"} --version`, enables: "fix for Rust crates", env: "AUTOFIX_CARGO" },
+  { name: "dotnet", probe: `${process.env.AUTOFIX_DOTNET ?? "dotnet"} --version`, enables: "fix for .NET (NuGet) projects", env: "AUTOFIX_DOTNET" },
   { name: "git", probe: "git --version", enables: "dirty-tree check, --pr" },
   { name: "gh", probe: "gh auth status", enables: "--pr on GitHub (must be logged in), faster fix-commit downloads for backports" },
 ];
