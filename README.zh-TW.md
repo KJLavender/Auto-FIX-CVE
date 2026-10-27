@@ -125,7 +125,9 @@ trivy image --format cyclonedx -o api.cdx.json harbor.example.com/pdmp/api:<部�
 node dist/cli.js scan . --sbom api.cdx.json --baseline api.baseline.json --fail-on risk
 ```
 
-pipeline 只在有人 push 時才檢查程式碼。新的 CVE 公布時，已經在跑的映像要等到下一次改動才會被重新檢查。`--sbom` 改為掃描 CycloneDX 或 SPDX JSON 格式的 SBOM，而不是 lockfile：可以是 `trivy image` 的輸出，或 Harbor 為映像產生的 SBOM。排程對「部署中映像」的 SBOM 執行並搭配 baseline，只有出現**新的**問題時 job 才會失敗，例如某個套件剛被列入 KEV 清單。SBOM 中的 npm、PyPI、Go、crates.io 和 NuGet 套件都會檢查，也會算出每個間接套件是由哪個直接依賴帶進來的。OS 套件（`deb`、`rpm`、`apk`）和其他類型只計數、不檢查，請交給 Trivy。因為沒有原始碼，可達性無法判斷，所以請用 `--fail-on any`、`high` 或 `risk`（此時等於「已知被利用」）。`[dir]` 裡 `.autofix-cve.json` 的 ignore 規則照樣有效。Node.js 和 .NET runtime 常常不在 SBOM 裡，請搭配 `runtime` 一起用。
+pipeline 只在有人 push 時才檢查程式碼。新的 CVE 公布時，已經在跑的映像要等到下一次改動才會被重新檢查。`--sbom` 改為掃描 CycloneDX 或 SPDX JSON 格式的 SBOM，而不是 lockfile：可以是 `trivy image` 的輸出，或 Harbor 為映像產生的 SBOM。排程對「部署中映像」的 SBOM 執行並搭配 baseline，只有出現**新的**問題時 job 才會失敗，例如某個套件剛被列入 KEV 清單。SBOM 中的 npm、PyPI、Go、crates.io 和 NuGet 套件都會檢查，也會算出每個間接套件是由哪個直接依賴帶進來的。**Debian 套件**也會檢查：Debian 的漏洞公告以 source package（`brotli`）為單位，而映像裡裝的是由它建出來的 binary（`libbrotli1`），所以會把 binary 歸到所屬的 source package 底下（取自 Trivy 的 `SrcName`/`SrcVersion` 或 SPDX 的 `sourceInfo`），版本也照 dpkg 的規則比較。其他 OS 套件（`rpm`、`apk`、Ubuntu）和其他類型只計數、不檢查，請交給 Trivy。
+
+若內網是從離線鏡像安裝 OS 套件，`--deb-list <file>` 會為每個「升級可以修好」的已安裝 binary 寫一行 `package=version`，例如 `libbrotli1=1.0.9-2+deb12u1`，可以直接拿到能上網的機器用 `apt-get download` 下載，再上傳到鏡像。因為沒有原始碼，可達性無法判斷，所以請用 `--fail-on any`、`high` 或 `risk`（此時等於「已知被利用」）。`[dir]` 裡 `.autofix-cve.json` 的 ignore 規則照樣有效。Node.js 和 .NET runtime 常常不在 SBOM 裡，請搭配 `runtime` 一起用。
 
 ### 接受的風險
 

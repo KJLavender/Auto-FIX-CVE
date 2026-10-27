@@ -21,6 +21,7 @@ All notable changes, newest first. No version has been released yet; everything 
 
 ### Runtimes and gating
 - `runtime`: checks the Node.js and .NET base images in Dockerfiles (pinned or floating tags, `ARG` defaults, registry prefixes) against Node.js's advisory index and security releases and .NET's release CVE lists, warns about end of support, and `--fix` pins them to the newest release of the same line.
+- Debian packages in SBOMs: grouped under their source package, compared like dpkg, and `--deb-list` writes the `package=version` pins to download for an offline apt mirror.
 - `scan --sbom`: scan a CycloneDX or SPDX SBOM (from `trivy image` or Harbor) instead of lockfiles, with the dependency graph, so deployed images can be re-checked on a schedule against new advisories.
 - `--fail-on risk`: fail only on vulnerabilities in CISA's Known Exploited Vulnerabilities catalog, or high/critical ones that the code reaches. Known-exploited ones are tagged in every output.
 - LLM: `AUTOFIX_LLM=openai` calls any OpenAI-compatible endpoint (company gateways, vLLM, Ollama) with structured output, a corrective retry, and token pricing for `--max-cost`.

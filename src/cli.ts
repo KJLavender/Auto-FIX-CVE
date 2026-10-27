@@ -24,7 +24,7 @@ import { formatFixSummary, formatPlan, formatReport } from "./report.js";
 import { toMarkdown } from "./markdown.js";
 import { mergeSarif, toSarif, type SarifLog } from "./sarif.js";
 import { triageFindings } from "./triage.js";
-import { readSbom } from "./sbom.js";
+import { debianDownloadList, readSbom } from "./sbom.js";
 import { fails, scan, scanDependencies, type FailOn, type IgnoredVuln, type Severity } from "./scan.js";
 import type { Finding } from "./types.js";
 
@@ -56,6 +56,7 @@ interface ScanCliOptions {
   triageLimit: number;
   maxCost?: number;
   sbom?: string;
+  debList?: string;
 }
 
 /** Caps model spend when a limit is given; useful on a subscription or a large repo. */
@@ -102,8 +103,10 @@ program
   .option("--triage-limit <n>", "packages to triage at most, per project", (v) => Number.parseInt(v, 10), 10)
   .option("--max-cost <usd>", "stop triaging once this much has been spent on the model", (v) => Number.parseFloat(v))
   .option("--sbom <file>", "scan a CycloneDX or SPDX JSON SBOM (e.g. of a deployed image) instead of lockfiles")
+  .option("--deb-list <file>", "with --sbom: write `package=version` lines for the fixed Debian packages, for offline download")
   .action(async (dir: string, opts: ScanCliOptions) => {
     const root = path.resolve(dir);
+    if (opts.debList && !opts.sbom) throw new Error("--deb-list needs --sbom.");
     if (opts.sbom && (opts.sarif || opts.triage || opts.recursive)) {
       throw new Error("--sbom cannot be combined with --sarif, --triage or --recursive: an SBOM has no source code or lockfile lines.");
     }
@@ -156,6 +159,11 @@ program
       // Accepted risks still come from the .autofix-cve.json in [dir].
       const findings = await scanDependencies(deps, root, { includeDev: true, ignored, minSeverity: opts.minSeverity });
       all.push({ project: ".", lockfile: path.basename(opts.sbom), findings, sbom: true });
+      if (opts.debList) {
+        const lines = debianDownloadList(findings);
+        await writeFile(opts.debList, lines.map((l) => `${l}\n`).join(""), "utf8");
+        console.error(pc.dim(`Wrote ${lines.length} Debian package pins to ${opts.debList}.`));
+      }
       if (!opts.json) {
         console.log(formatReport(findings, opts.maxUsages, false));
         for (const i of ignored) console.log(`${pc.dim("ignored")}  ${i.package}@${i.version} ${i.id}  ${pc.dim(i.reason)}`);

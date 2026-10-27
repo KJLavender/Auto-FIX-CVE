@@ -1,15 +1,77 @@
 {
   "spdxVersion": "SPDX-2.3",
   "packages": [
-    { "SPDXID": "SPDXRef-App", "name": "requirements.txt" },
-    { "SPDXID": "SPDXRef-flask", "name": "Flask", "externalRefs": [{ "referenceType": "purl", "referenceLocator": "pkg:pypi/Flask@2.0.0" }] },
-    { "SPDXID": "SPDXRef-werkzeug", "name": "Werkzeug", "externalRefs": [{ "referenceType": "purl", "referenceLocator": "pkg:pypi/Werkzeug@2.0.0" }] },
-    { "SPDXID": "SPDXRef-gin", "name": "gin", "externalRefs": [{ "referenceType": "purl", "referenceLocator": "pkg:golang/github.com/gin-gonic/gin@1.9.0" }] },
-    { "SPDXID": "SPDXRef-jar", "name": "log4j", "externalRefs": [{ "referenceType": "purl", "referenceLocator": "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1" }] }
+    {
+      "SPDXID": "SPDXRef-App",
+      "name": "requirements.txt"
+    },
+    {
+      "SPDXID": "SPDXRef-flask",
+      "name": "Flask",
+      "externalRefs": [
+        {
+          "referenceType": "purl",
+          "referenceLocator": "pkg:pypi/Flask@2.0.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-werkzeug",
+      "name": "Werkzeug",
+      "externalRefs": [
+        {
+          "referenceType": "purl",
+          "referenceLocator": "pkg:pypi/Werkzeug@2.0.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-gin",
+      "name": "gin",
+      "externalRefs": [
+        {
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/gin-gonic/gin@1.9.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-jar",
+      "name": "log4j",
+      "externalRefs": [
+        {
+          "referenceType": "purl",
+          "referenceLocator": "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-libbrotli",
+      "name": "libbrotli1",
+      "sourceInfo": "built package from: brotli 1.0.9-2",
+      "externalRefs": [
+        {
+          "referenceType": "purl",
+          "referenceLocator": "pkg:deb/debian/libbrotli1@1.0.9-2%2Bb6?arch=amd64&distro=debian-12.11"
+        }
+      ]
+    }
   ],
   "relationships": [
-    { "spdxElementId": "SPDXRef-App", "relationshipType": "CONTAINS", "relatedSpdxElement": "SPDXRef-flask" },
-    { "spdxElementId": "SPDXRef-App", "relationshipType": "CONTAINS", "relatedSpdxElement": "SPDXRef-werkzeug" },
-    { "spdxElementId": "SPDXRef-flask", "relationshipType": "DEPENDS_ON", "relatedSpdxElement": "SPDXRef-werkzeug" }
+    {
+      "spdxElementId": "SPDXRef-App",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-flask"
+    },
+    {
+      "spdxElementId": "SPDXRef-App",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-werkzeug"
+    },
+    {
+      "spdxElementId": "SPDXRef-flask",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-werkzeug"
+    }
   ]
 }

@@ -94,7 +94,13 @@ export function formatReport(findings: Finding[], maxUsages = 10, codeAnalysed =
   for (const f of findings) {
     const d = f.dependency;
     // go.mod and Pipfile.lock do not record which package pulls in an indirect one.
-    const kind = d.direct ? "direct" : d.introducedBy.length ? `transitive via ${d.introducedBy.join(", ")}` : "transitive";
+    const kind = d.binaries
+      ? `${d.ecosystem} source package, installed as ${d.binaries.map((b) => b.name).join(", ")}`
+      : d.direct
+        ? "direct"
+        : d.introducedBy.length
+          ? `transitive via ${d.introducedBy.join(", ")}`
+          : "transitive";
     out.push(`${pc.bold(`${d.name}@${d.version}`)}  ${pc.dim(`(${kind}${d.dev ? ", dev" : ""})`)}  ${codeAnalysed ? REACH_LABEL[f.reachability] : pc.dim("reachability unknown (no source code)")}`);
     if (f.triage) {
       out.push(`  ${TRIAGE_LABEL[f.triage.verdict]} ${f.triage.reasoning}`);

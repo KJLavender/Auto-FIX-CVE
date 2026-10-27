@@ -12,6 +12,11 @@ export interface Dependency {
   dev: boolean;
   /** Direct dependencies that pull this package in (itself, if direct). */
   introducedBy: string[];
+  /**
+   * Debian: advisories are about the source package (`brotli`), but images
+   * install binary packages built from it (`libbrotli1`); these are the ones present.
+   */
+  binaries?: { name: string; version: string }[];
 }
 
 export interface Vulnerability {
