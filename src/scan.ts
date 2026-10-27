@@ -1,5 +1,6 @@
 import { appliedBackports, mitigatedIds, readManifest, ruleActive } from "./backport/manifest.js";
 import { findUsages } from "./impact/analyze.js";
+import { loadKev, markExploited } from "./kev.js";
 import { findGoUsages } from "./impact/go.js";
 import { findPythonUsages } from "./impact/python.js";
 import { findRustUsages } from "./impact/rust.js";
@@ -77,7 +78,14 @@ export function maxSeverity(vulns: Vulnerability[]): number {
   return Math.max(0, ...vulns.map((v) => SEVERITY_RANK[v.severity?.toUpperCase() ?? ""] ?? 0));
 }
 
-export type FailOn = "any" | "likely" | "high" | "none";
+export type FailOn = "any" | "likely" | "high" | "risk" | "none";
+
+/** Whether the finding's code path is probably used: a definite model verdict wins over the name-matching heuristic. */
+function reached(f: Finding): boolean {
+  if (f.triage?.verdict === "reachable") return true;
+  if (f.triage?.verdict === "not-reachable") return false;
+  return f.reachability === "likely";
+}
 
 /** Whether a finding should fail `scan --fail-on <level>`. */
 export function fails(f: Finding, failOn: FailOn): boolean {
@@ -85,10 +93,10 @@ export function fails(f: Finding, failOn: FailOn): boolean {
     case "any":
       return true;
     case "likely":
-      // A definite model verdict overrides the name-matching heuristic; "unclear" falls back to it.
-      if (f.triage?.verdict === "reachable") return true;
-      if (f.triage?.verdict === "not-reachable") return false;
-      return f.reachability === "likely";
+      return reached(f);
+    case "risk":
+      // Attacked in the wild, or high/critical and reached by this code.
+      return f.vulns.some((v) => v.knownExploited) || (reached(f) && maxSeverity(f.vulns) >= 3);
     case "high":
       return maxSeverity(f.vulns) >= 3;
     case "none":
@@ -116,6 +124,7 @@ export async function scan(projectDir: string, options: ScanOptions): Promise<Fi
   const lock = await readLockfile(projectDir, options.lock);
   const deps = lock.deps.filter((d) => options.includeDev || !d.dev);
   const osv = new OsvClient();
+  const kev = loadKev();
   const hits = await osv.queryBatch(deps.map((d) => ({ name: d.name, version: d.version, ecosystem: d.ecosystem })));
 
   // Vulnerabilities fixed by a verified backport for this exact version are not
@@ -149,6 +158,7 @@ export async function scan(projectDir: string, options: ScanOptions): Promise<Fi
       return false;
     });
     if (vulns.length === 0) return undefined;
+    markExploited(vulns, await kev);
     const safe = await osv.findSafeVersion(dep.name, dep.version, vulns, dep.ecosystem, accepted);
     const safeVersion = safe.version;
     // The search may name a duplicate record; report each unfixable vulnerability once, by its primary id.
@@ -181,6 +191,7 @@ export async function scan(projectDir: string, options: ScanOptions): Promise<Fi
   const findings = resolved.filter((f): f is Finding => f !== undefined);
   return findings.sort(
     (a, b) =>
+      Number(b.vulns.some((v) => v.knownExploited)) - Number(a.vulns.some((v) => v.knownExploited)) ||
       REACH_RANK[b.reachability] - REACH_RANK[a.reachability] ||
       maxSeverity(b.vulns) - maxSeverity(a.vulns) ||
       a.dependency.name.localeCompare(b.dependency.name),

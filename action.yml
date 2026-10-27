@@ -18,7 +18,7 @@ inputs:
     description: Also scan every project in subdirectories (monorepos).
     default: "false"
   fail-on:
-    description: "Fail the job when findings match: any, likely (reachable from your code), high (severity), none."
+    description: "Fail the job when findings match: any, likely (reachable from your code), high (severity), risk (known exploited, or high and reachable), none."
     default: any
   include-dev:
     description: Also scan dev-only dependencies.

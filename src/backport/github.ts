@@ -1,4 +1,5 @@
 import { runFile } from "../fix/exec.js";
+import { endpoints } from "../endpoints.js";
 import { fetchWithRetry } from "../http.js";
 
 const REF = /github\.com\/([^/]+)\/([^/]+)\/(commit|pull)\/([0-9a-f]{7,40}|\d+)/i;
@@ -23,7 +24,7 @@ export async function fetchFixDiff(url: string): Promise<string | undefined> {
   const m = url.match(REF);
   if (!m) return undefined;
   const [, owner, repo, kind, ref] = m;
-  const api = `https://api.github.com/repos/${owner}/${repo}/${kind === "pull" ? "pulls" : "commits"}/${ref}`;
+  const api = `${endpoints.github()}/repos/${owner}/${repo}/${kind === "pull" ? "pulls" : "commits"}/${ref}`;
   const token = await githubToken();
   const headers: Record<string, string> = { accept: "application/vnd.github.diff", "user-agent": "autofix-cve" };
   if (token) headers.authorization = `Bearer ${token}`;

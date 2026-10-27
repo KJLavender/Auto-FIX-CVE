@@ -10,6 +10,7 @@ import { appliedBackports, MANIFEST, readManifest, ruleActive } from "./backport
 import { runPoc } from "./backport/poc.js";
 import { readBaseline, splitByBaseline, writeBaseline } from "./baseline.js";
 import { checkTools } from "./doctor.js";
+import { endpoints } from "./endpoints.js";
 import { detectChecks } from "./fix/context.js";
 import { run } from "./fix/exec.js";
 import { FIXABLE, managerFor } from "./fix/managers.js";
@@ -87,8 +88,11 @@ program
   .option("--baseline <file>", "only vulnerabilities not in this baseline count for --fail-on")
   .option("--update-baseline", "write the current vulnerabilities to the --baseline file and exit 0")
   .addOption(
-    new Option("--fail-on <level>", "exit 1 when findings match: any, likely (reachable), high (severity), none")
-      .choices(["any", "likely", "high", "none"])
+    new Option(
+      "--fail-on <level>",
+      "exit 1 when findings match: any, likely (reachable), high (severity), risk (known exploited, or high and reachable), none",
+    )
+      .choices(["any", "likely", "high", "risk", "none"])
       .default("any"),
   )
   .option("--triage", "ask the model whether each imported vulnerable package is reachable from your call sites")
@@ -350,7 +354,7 @@ program
   .command("doctor")
   .description("Check which external tools are available and what they enable")
   .action(async () => {
-    const osv = await fetch("https://api.osv.dev/v1/vulns/GHSA-35jh-r3h4-6jhm").then((r) => r.ok).catch(() => false);
+    const osv = await fetch(`${endpoints.osv()}/vulns/GHSA-35jh-r3h4-6jhm`).then((r) => r.ok).catch(() => false);
     console.log(`${osv ? pc.green("ok     ") : pc.red("missing")}  ${"OSV API".padEnd(8)}  ${pc.dim("scan (required)")}`);
     for (const t of await checkTools()) {
       const status = t.ok ? pc.green("ok     ") : pc.yellow("missing");

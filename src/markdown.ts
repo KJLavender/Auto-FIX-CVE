@@ -36,7 +36,8 @@ export function toMarkdown(projects: { lockfile: string; findings: Finding[] }[]
     for (const f of findings) {
       const d = f.dependency;
       const ids = f.vulns.map((v) => v.aliases.find((a) => a.startsWith("CVE-")) ?? v.id);
-      const vulns = ids.slice(0, 3).join(", ") + (ids.length > 3 ? ` +${ids.length - 3}` : "");
+      const vulns =
+        ids.slice(0, 3).join(", ") + (ids.length > 3 ? ` +${ids.length - 3}` : "") + (f.vulns.some((v) => v.knownExploited) ? " **⚠ known exploited**" : "");
       const kind = d.direct ? "" : ` (via ${d.introducedBy.join(", ")})`;
       const fix = f.safeVersion ? `→ ${f.safeVersion}${f.breaking ? " (breaking)" : ""}` : "no fixed release";
       out.push(`| \`${d.name}@${d.version}\`${kind} | ${worstSeverity(f)} | ${vulns} | ${reach(f)} | ${where(f)} | ${fix} |`);

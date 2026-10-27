@@ -1,4 +1,5 @@
 import { fetchWithRetry } from "./http.js";
+import { endpoints } from "./endpoints.js";
 import type { Ecosystem } from "./versions.js";
 
 /** Versions that can actually be installed: not yanked (PyPI, crates.io) and not deprecated (npm). */
@@ -11,7 +12,7 @@ async function json(url: string, headers: Record<string, string> = {}): Promise<
 
 async function npmUsable(name: string): Promise<Set<string> | undefined> {
   // The abbreviated document is much smaller than the full one and still has `deprecated`.
-  const doc = (await json(`https://registry.npmjs.org/${name.replace("/", "%2f")}`, {
+  const doc = (await json(`${endpoints.npm()}/${name.replace("/", "%2f")}`, {
     accept: "application/vnd.npm.install-v1+json",
   })) as { versions?: Record<string, { deprecated?: string }> } | undefined;
   if (!doc?.versions) return undefined;
@@ -19,7 +20,7 @@ async function npmUsable(name: string): Promise<Set<string> | undefined> {
 }
 
 async function pypiUsable(name: string): Promise<Set<string> | undefined> {
-  const doc = (await json(`https://pypi.org/pypi/${name}/json`)) as { releases?: Record<string, { yanked?: boolean }[]> } | undefined;
+  const doc = (await json(`${endpoints.pypi()}/${name}/json`)) as { releases?: Record<string, { yanked?: boolean }[]> } | undefined;
   if (!doc?.releases) return undefined;
   return new Set(Object.entries(doc.releases).filter(([, files]) => files.length && !files.every((f) => f.yanked)).map(([k]) => k));
 }
@@ -33,7 +34,7 @@ export function cratesIndexPath(name: string): string {
 }
 
 async function cratesUsable(name: string): Promise<Set<string> | undefined> {
-  const res = await fetchWithRetry(`https://index.crates.io/${cratesIndexPath(name)}`, { headers: { "user-agent": "autofix-cve" } }).catch(
+  const res = await fetchWithRetry(`${endpoints.crates()}/${cratesIndexPath(name)}`, { headers: { "user-agent": "autofix-cve" } }).catch(
     () => undefined,
   );
   if (!res?.ok) return undefined;

@@ -104,6 +104,19 @@ idna@2.10  (transitive via requests)  imported
 
 `not reachable` is only allowed when the code itself rules out every advisory; anything that depends on the environment or on where an input comes from is `unclear`. With `--fail-on likely`, a `reachable` verdict fails the build, `not reachable` does not, and `unclear` falls back to the name-matching heuristic. In SARIF, `not reachable` alerts are downgraded to notes. Verdicts can differ between runs, so treat them as a review aid. Cost on the Python example: about $0.15 for five packages.
 
+#### Risk-based gate
+
+```bash
+node dist/cli.js scan path/to/project --fail-on risk
+```
+
+Severity alone blocks too much: a build can be held up for weeks by a HIGH advisory in code you never call, while a MODERATE one that is being attacked right now slips through. `--fail-on risk` fails only on what matters now:
+
+- any vulnerability in CISA's [Known Exploited Vulnerabilities](https://www.cisa.gov/known-exploited-vulnerabilities-catalog) catalog (attacked in the wild), whatever its rating, or
+- a high or critical one that your code reaches (`likely`, or a `reachable` triage verdict; a `not reachable` verdict clears it).
+
+Known-exploited vulnerabilities are listed first and tagged `KNOWN EXPLOITED` in the report, Markdown and SARIF (where they are always errors). Everything else is still reported, so you can fix it on a schedule instead of on the release path. The catalog is downloaded once per run; see [Mirrors and offline use](#mirrors-and-offline-use) to use a local copy.
+
 ### Accepted risks
 
 Record vulnerabilities you decided not to fix in `.autofix-cve.json`. A reason is required, and an optional expiry date makes the vulnerability come back for review:
@@ -257,7 +270,7 @@ jobs:
       - run: npm ci            # applies backports via postinstall, needed by verify
       - uses: KJLavender/Auto-FIX-CVE@main
         with:
-          fail-on: likely      # any | likely | high | none
+          fail-on: likely      # any | likely | high | risk | none
 ```
 
 The action scans, writes a Markdown table to the job summary, uploads a SARIF report to code scanning, and runs `verify` when the project has backports. Alerts appear on the lockfile entry **and on the exact lines that call the API named in the advisory**. Inputs: `path`, `recursive`, `baseline`, `min-severity`, `fail-on`, `include-dev`, `sarif-file`, `upload-sarif`, `verify`.
@@ -299,6 +312,21 @@ Advisory text and upstream diffs are untrusted input to the LLM, so its output i
 - Code edits are exact search/replace operations. They cannot touch `package.json`, lockfiles or anything outside the project, and backport edits stay inside the one package being patched.
 - PoC scripts run under the Node.js permission model (`--permission`): read-only access to the project, no file writes, no child processes, no native addons, and a 10 s timeout.
 - Nothing is kept unless your checks pass, and for backports the PoCs too.
+
+## Mirrors and offline use
+
+Every outside service can be pointed at a mirror, for networks that only reach the internet through a proxy such as Nexus:
+
+| Variable | Default | |
+|---|---|---|
+| `AUTOFIX_OSV_URL` | `https://api.osv.dev/v1` | OSV API (advisories) |
+| `AUTOFIX_NPM_REGISTRY` | `npm_config_registry`, else `https://registry.npmjs.org` | npm registry, for skipping deprecated releases |
+| `AUTOFIX_PYPI_URL` | `https://pypi.org/pypi` | PyPI JSON API, for skipping yanked releases |
+| `AUTOFIX_CRATES_INDEX` | `https://index.crates.io` | crates.io sparse index |
+| `AUTOFIX_GITHUB_API` | `https://api.github.com` | GitHub API (GitHub Enterprise), for backport diffs |
+| `AUTOFIX_KEV_URL` | CISA's feed | KEV catalog: a URL, a local JSON file, or `off` |
+
+When run through npm or npx, the registry from your `.npmrc` is used automatically. If a registry cannot be reached, the tool still works; it just cannot rule out deprecated or yanked versions.
 
 ## LLM backend
 

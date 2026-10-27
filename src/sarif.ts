@@ -83,19 +83,22 @@ export async function toSarif(
           helpUri: `https://osv.dev/vulnerability/${v.id}`,
           help: { text: `${v.summary}\n\nSee https://osv.dev/vulnerability/${v.id}` },
           defaultConfiguration: { level: LEVEL[sev] ?? "warning" },
-          properties: { tags: ["security", "dependency", ...(cve ? [cve] : [])], "security-severity": SECURITY_SEVERITY[sev] ?? "5.0" },
+          properties: {
+            tags: ["security", "dependency", ...(cve ? [cve] : []), ...(v.knownExploited ? ["known-exploited"] : [])],
+            "security-severity": SECURITY_SEVERITY[sev] ?? "5.0",
+          },
         });
       }
 
       const named = f.usages.filter((u) => u.mentionedBy.includes(v.id));
       // A model verdict of "not reachable" keeps the alert but stops it from blocking.
-      const level = f.triage?.verdict === "not-reachable" ? "note" : (LEVEL[sev] ?? "warning");
+      const level = v.knownExploited ? "error" : f.triage?.verdict === "not-reachable" ? "note" : (LEVEL[sev] ?? "warning");
       const triage = f.triage ? ` Triage: ${f.triage.verdict}. ${f.triage.reasoning}` : "";
       results.push({
         ruleId: v.id,
         level,
         message: {
-          text: `${name}@${installed} is affected by ${cve ?? v.id}: ${v.summary}. ${fix} Reachability: ${f.reachability}.${triage}`,
+          text: `${name}@${installed} is affected by ${cve ?? v.id}: ${v.summary}.${v.knownExploited ? " Known to be exploited in the wild (CISA KEV)." : ""} ${fix} Reachability: ${f.reachability}.${triage}`,
         },
         ...(f.triage ? { properties: { triage: f.triage } } : {}),
         locations: [location(uri(lockName), lockfileLine(kind, lock, name, installed))],

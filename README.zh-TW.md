@@ -104,6 +104,19 @@ idna@2.10  (transitive via requests)  imported
 
 只有在程式碼本身就能排除所有 advisory 時，才允許判成 `not reachable`；取決於執行環境或輸入來源的情況一律是 `unclear`。搭配 `--fail-on likely` 時，`reachable` 會讓 build 失敗，`not reachable` 不會，`unclear` 則退回名稱比對的啟發式判斷。SARIF 中 `not reachable` 的警報會降為 note。判讀結果每次執行可能略有差異，請把它當成 review 的輔助。Python 範例的成本：五個套件約 $0.15。
 
+#### 依風險擋 build
+
+```bash
+node dist/cli.js scan path/to/project --fail-on risk
+```
+
+只看嚴重度會擋太多：一個你根本沒呼叫到的 HIGH 漏洞可以卡住 build 好幾週，而正在被攻擊的 MODERATE 漏洞卻能過關。`--fail-on risk` 只在真正要緊的情況下失敗：
+
+- 任何列在 CISA [Known Exploited Vulnerabilities](https://www.cisa.gov/known-exploited-vulnerabilities-catalog)（已在外面被實際攻擊）清單裡的漏洞，不論評級；或
+- 你的程式碼會走到的 high 或 critical 漏洞（`likely`，或 triage 判成 `reachable`；判成 `not reachable` 則不算）。
+
+已知被利用的漏洞會排在最前面，並在報告、Markdown 和 SARIF 中標上 `KNOWN EXPLOITED`（SARIF 一律為 error）。其他漏洞照樣會列出，可以排進修補時程，而不用卡在上線流程上。清單每次執行下載一次；要用本機的副本請見[鏡像與離線使用](#鏡像與離線使用)。
+
 ### 接受的風險
 
 把決定不修的漏洞記錄在 `.autofix-cve.json`。每條規則都必須附上理由，也可以設定到期日，到期後漏洞會重新出現，讓團隊再評估一次：
@@ -257,7 +270,7 @@ jobs:
       - run: npm ci            # 透過 postinstall 套用 backport，verify 需要
       - uses: KJLavender/Auto-FIX-CVE@main
         with:
-          fail-on: likely      # any | likely | high | none
+          fail-on: likely      # any | likely | high | risk | none
 ```
 
 這個 action 會掃描、把 Markdown 表格寫進 job summary、把 SARIF 報告上傳到 code scanning；專案有 backport 時也會執行 `verify`。Alert 會出現在 lockfile 的套件項目上，**也會出現在呼叫 advisory 點名的 API 的那一行程式碼**。可用的輸入：`path`、`recursive`、`baseline`、`min-severity`、`fail-on`、`include-dev`、`sarif-file`、`upload-sarif`、`verify`。
@@ -299,6 +312,21 @@ Advisory 內文和上游 diff 對 LLM 來說都是不可信的輸入，所以會
 - 程式碼修改只能是精確的 search/replace，不能動 `package.json`、lockfile 或專案以外的任何東西；backport 的修改只能落在被修補的那一個套件內。
 - PoC 腳本在 Node.js permission model（`--permission`）下執行：專案唯讀、不能寫檔、不能開子程序、不能載入原生模組，並有 10 秒逾時。
 - 必須通過你的驗證指令（backport 還要通過 PoC），修改才會留下。
+
+## 鏡像與離線使用
+
+所有對外服務都可以改指向鏡像，適用於只能透過 Nexus 之類的 proxy 上網的內網環境：
+
+| 變數 | 預設 | |
+|---|---|---|
+| `AUTOFIX_OSV_URL` | `https://api.osv.dev/v1` | OSV API（漏洞資料） |
+| `AUTOFIX_NPM_REGISTRY` | `npm_config_registry`，沒有則 `https://registry.npmjs.org` | npm registry，用來排除已 deprecated 的版本 |
+| `AUTOFIX_PYPI_URL` | `https://pypi.org/pypi` | PyPI JSON API，用來排除已 yank 的版本 |
+| `AUTOFIX_CRATES_INDEX` | `https://index.crates.io` | crates.io sparse index |
+| `AUTOFIX_GITHUB_API` | `https://api.github.com` | GitHub API（GitHub Enterprise），backport 抓 diff 用 |
+| `AUTOFIX_KEV_URL` | CISA 官方 feed | KEV 清單：URL、本機 JSON 檔，或 `off` |
+
+透過 npm 或 npx 執行時，會自動使用 `.npmrc` 設定的 registry。連不到 registry 時工具照樣可用，只是無法排除 deprecated 或 yank 的版本。
 
 ## LLM backend
 

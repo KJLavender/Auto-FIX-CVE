@@ -26,6 +26,8 @@ export interface Vulnerability {
   fixCommits: string[];
   /** Vulnerable functions named by the advisory (Go advisories list them), e.g. `Default` or `Context.File`. */
   affectedSymbols?: string[];
+  /** Listed in CISA's Known Exploited Vulnerabilities catalog: attacked in the wild. */
+  knownExploited?: boolean;
 }
 
 export interface Usage {
