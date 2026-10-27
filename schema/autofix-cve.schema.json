@@ -32,13 +32,23 @@
         "additionalProperties": false,
         "properties": {
           "id": {
-            "description": "GHSA, PYSEC, GO, RUSTSEC or CVE id.",
+            "description": "GHSA, PYSEC, GO, RUSTSEC, CVE or Debian (DSA, DLA, DEBIAN-CVE) id.",
             "type": "string",
-            "pattern": "^(GHSA-|PYSEC-|GO-|RUSTSEC-|CVE-)"
+            "pattern": "^(GHSA-|PYSEC-|GO-|RUSTSEC-|CVE-|DSA-|DLA-|DEBIAN-)"
           },
           "package": { "description": "Limit the rule to one package.", "type": "string" },
           "reason": { "description": "Why this vulnerability is accepted.", "type": "string", "minLength": 1 },
-          "until": { "description": "YYYY-MM-DD; reported again after this day.", "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" }
+          "until": { "description": "YYYY-MM-DD; reported again after this day.", "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+          "justification": {
+            "description": "OpenVEX justification. With one, `scan --vex` states the package is not affected, so other scanners (Trivy --vex) suppress it too.",
+            "enum": [
+              "component_not_present",
+              "vulnerable_code_not_present",
+              "vulnerable_code_not_in_execute_path",
+              "vulnerable_code_cannot_be_controlled_by_adversary",
+              "inline_mitigations_already_exist"
+            ]
+          }
         }
       }
     }

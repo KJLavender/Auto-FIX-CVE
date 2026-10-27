@@ -25,6 +25,7 @@ import { toMarkdown } from "./markdown.js";
 import { mergeSarif, toSarif, type SarifLog } from "./sarif.js";
 import { triageFindings } from "./triage.js";
 import { debianDownloadList, readSbom } from "./sbom.js";
+import { openVex, vexStatements, type VexSources } from "./vex.js";
 import { fails, scan, scanDependencies, type FailOn, type IgnoredVuln, type Severity } from "./scan.js";
 import type { Finding } from "./types.js";
 
@@ -56,6 +57,8 @@ interface ScanCliOptions {
   triageLimit: number;
   maxCost?: number;
   sbom?: string;
+  vex?: string;
+  vexProduct?: string;
   debList?: string;
 }
 
@@ -103,6 +106,8 @@ program
   .option("--triage-limit <n>", "packages to triage at most, per project", (v) => Number.parseInt(v, 10), 10)
   .option("--max-cost <usd>", "stop triaging once this much has been spent on the model", (v) => Number.parseFloat(v))
   .option("--sbom <file>", "scan a CycloneDX or SPDX JSON SBOM (e.g. of a deployed image) instead of lockfiles")
+  .option("--vex <file>", "also write an OpenVEX document: not-reachable triage verdicts, justified ignore rules, backports")
+  .option("--vex-product <purl>", "with --vex: the product the packages ship in (e.g. pkg:oci/api@sha256:…), so statements name it")
   .option("--deb-list <file>", "with --sbom: write `package=version` lines for the fixed Debian packages, for offline download")
   .action(async (dir: string, opts: ScanCliOptions) => {
     const root = path.resolve(dir);
@@ -121,6 +126,7 @@ program
     // One budget across all projects of a recursive scan.
     const triageBackend = withBudget(createBackend(), opts.maxCost);
     const all: { project: string; lockfile: string; findings: Finding[]; sbom?: boolean }[] = [];
+    const vexSources: VexSources = { findings: [], ignored: [], backports: [] };
     const logs: SarifLog[] = [];
     for (const { dir: projectDir, lock } of projects) {
       const label = path.relative(root, path.join(projectDir, lock.file)).split(path.sep).join("/");
@@ -132,6 +138,9 @@ program
       }
       if (opts.sarif) logs.push(await toSarif(projectDir, findings, VERSION, process.cwd(), lock));
       all.push({ project: path.relative(root, projectDir).split(path.sep).join("/") || ".", lockfile: label, findings });
+      vexSources.findings.push(...findings);
+      vexSources.ignored.push(...ignored);
+      if (opts.vex) vexSources.backports.push(...(await appliedBackports(projectDir, await readManifest(projectDir))));
 
       if (opts.json) continue;
       if (projects.length > 1) console.log(pc.bold(pc.cyan(`\n== ${label} ==`)));
@@ -159,6 +168,8 @@ program
       // Accepted risks still come from the .autofix-cve.json in [dir].
       const findings = await scanDependencies(deps, root, { includeDev: true, ignored, minSeverity: opts.minSeverity });
       all.push({ project: ".", lockfile: path.basename(opts.sbom), findings, sbom: true });
+      vexSources.findings.push(...findings);
+      vexSources.ignored.push(...ignored);
       if (opts.debList) {
         const lines = debianDownloadList(findings);
         await writeFile(opts.debList, lines.map((l) => `${l}\n`).join(""), "utf8");
@@ -173,6 +184,11 @@ program
     }
 
     if (opts.markdown) await writeFile(opts.markdown, toMarkdown(all), "utf8");
+    if (opts.vex) {
+      const statements = vexStatements(vexSources, opts.vexProduct);
+      await writeFile(opts.vex, JSON.stringify(openVex(statements), null, 2) + "\n", "utf8");
+      console.error(pc.dim(`Wrote ${statements.length} VEX statements to ${opts.vex}.`));
+    }
     if (opts.sarif) await writeFile(opts.sarif, JSON.stringify(mergeSarif(logs), null, 2) + "\n", "utf8");
     // One project keeps the original output shape: a plain array of findings.
     if (opts.json) console.log(JSON.stringify(all.length === 1 ? all[0].findings : all, null, 2));

@@ -8,7 +8,8 @@ import { findRustUsages } from "./impact/rust.js";
 import { readLockfile, type LockRef } from "./lockfile/index.js";
 import { dedupeVulns, OsvClient } from "./osv/client.js";
 import type { Dependency, Finding, Reachability, Usage, Vulnerability } from "./types.js";
-import { isBreakingUpgrade, normalizeName } from "./versions.js";
+import { isBreakingUpgrade, normalizeName, type Ecosystem } from "./versions.js";
+import type { VexJustification } from "./vex.js";
 
 export interface ScanOptions {
   includeDev: boolean;
@@ -30,11 +31,14 @@ export function meetsSeverity(v: Vulnerability, min: Severity | undefined): bool
 }
 
 export interface IgnoredVuln {
+  ecosystem: Ecosystem;
   package: string;
   version: string;
   id: string;
+  aliases: string[];
   reason: string;
   until?: string;
+  justification?: VexJustification;
 }
 
 const SEVERITY_RANK: Record<string, number> = { CRITICAL: 4, HIGH: 3, MODERATE: 2, MEDIUM: 2, LOW: 1 };
@@ -170,7 +174,16 @@ export async function scanDependencies(
         return meetsSeverity(v, options.minSeverity);
       }
       keys.forEach((k) => accepted.add(k));
-      options.ignored?.push({ package: dep.name, version: dep.version, id: v.id, reason: rule.reason, until: rule.until });
+      options.ignored?.push({
+        ecosystem: dep.ecosystem,
+        package: dep.name,
+        version: dep.version,
+        id: v.id,
+        aliases: v.aliases,
+        reason: rule.reason,
+        until: rule.until,
+        justification: rule.justification,
+      });
       return false;
     });
     if (vulns.length === 0) return undefined;

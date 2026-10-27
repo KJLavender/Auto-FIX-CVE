@@ -145,6 +145,21 @@ pipeline 只在有人 push 時才檢查程式碼。新的 CVE 公布時，已經
 
 `id` 可以填 GHSA、PYSEC、GO、RUSTSEC 或 CVE 編號。`$schema` 這一行（工具寫入檔案時會自動加上）讓編輯器提供自動完成，並標出缺少理由或日期格式錯誤的規則。被忽略的漏洞不會出現在結果、`--fail-on`、SARIF 和 `fix`（包含升級版本的搜尋）中，`scan` 則會列出它們和各自的理由。沒有理由或已經超過 `until` 日期的規則不會生效，`scan` 也會提示。
 
+#### 給其他掃描器用的 VEX
+
+```bash
+node dist/cli.js scan . --triage --vex app.vex.json
+trivy image --vex app.vex.json harbor.example.com/pdmp/api:abc123
+```
+
+registry 或掃描器的 allowlist 只說「別再報這個」，不說為什麼，而且條目常常比當初的理由活得更久。`--vex <file>` 改為輸出 [OpenVEX](https://openvex.dev) 文件，只為這個工具真的有依據的漏洞寫 statement：
+
+- 模型 triage 判成**不可達**的套件：`not_affected` / `vulnerable_code_not_in_execute_path`，並以模型的理由作為 impact statement；
+- 帶有 OpenVEX `justification` 的 ignore 規則（例如在 `reason` 旁寫 `"justification": "vulnerable_code_cannot_be_controlled_by_adversary"`）：`not_affected`；規則的 `until` 日期也會結束這筆 statement，因為過期的規則不會生效；
+- 驗證過的 backport：`fixed`。
+
+沒有 `justification` 的 ignore 規則只在本工具內接受風險，不會對其他工具做任何聲明。每筆 statement 以 purl 指出套件（Debian 套件用已安裝的 binary）。`--vex-product <purl>` 會把它們列為某個產品（例如容器映像 `pkg:oci/…`）的 subcomponent，這是 Trivy 對映像的要求。把這個檔案和程式碼一起放進 Git，每一筆例外就會像其他修改一樣經過 review。
+
 ### 修復
 
 ```bash

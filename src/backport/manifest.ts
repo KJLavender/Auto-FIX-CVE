@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { patchApplied } from "./replay.js";
+import type { VexJustification } from "../vex.js";
 
 export const MANIFEST = ".autofix-cve.json";
 
@@ -25,6 +26,12 @@ export interface IgnoreRule {
   reason: string;
   /** `YYYY-MM-DD`; after this day the vulnerability is reported again. */
   until?: string;
+  /**
+   * An OpenVEX justification (e.g. `vulnerable_code_not_in_execute_path`). With
+   * one, `scan --vex` states the package is not affected, so other scanners
+   * (Trivy `--vex`) suppress it too; without one, the risk is only accepted here.
+   */
+  justification?: VexJustification;
 }
 
 export interface Manifest {

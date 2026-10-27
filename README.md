@@ -145,6 +145,21 @@ Record vulnerabilities you decided not to fix in `.autofix-cve.json`. A reason i
 
 `id` can be a GHSA, PYSEC, GO, RUSTSEC or CVE id. The `$schema` line (added automatically when the tool writes the file) gives editors autocompletion and flags a missing reason or a malformed date. Ignored vulnerabilities are left out of findings, `--fail-on`, SARIF and `fix` (including the upgrade search), and `scan` lists them with their reasons. A rule without a reason, or past its `until` date, is not applied and `scan` says so.
 
+#### VEX for other scanners
+
+```bash
+node dist/cli.js scan . --triage --vex app.vex.json
+trivy image --vex app.vex.json harbor.example.com/pdmp/api:abc123
+```
+
+An allowlist in a registry or scanner says "stop reporting this" without saying why, and entries tend to outlive the reason. `--vex <file>` writes an [OpenVEX](https://openvex.dev) document instead, with one statement per vulnerability that this tool can actually back:
+
+- `not_affected` / `vulnerable_code_not_in_execute_path` for packages the model triaged as **not reachable**, with its reasoning as the impact statement;
+- `not_affected` for ignore rules that carry an OpenVEX `justification` (e.g. `"justification": "vulnerable_code_cannot_be_controlled_by_adversary"` next to the `reason`); the rule's `until` date ends the statement too, because an expired rule is not applied;
+- `fixed` for verified backports.
+
+Ignore rules without a `justification` only accept the risk locally and make no claim to other tools. Statements name each package by its purl (Debian packages by their installed binaries). `--vex-product <purl>` lists them as subcomponents of a product such as the container image (`pkg:oci/…`), as Trivy expects for images. Keep the file in Git next to the code, so every exception is reviewed like any other change.
+
 ### Fix
 
 ```bash
