@@ -123,7 +123,7 @@ Each CVE also gets its [EPSS](https://www.first.org/epss/) score, FIRST's estima
 #### Deployed images (SBOM)
 
 ```bash
-trivy image --format cyclonedx -o api.cdx.json harbor.example.com/pdmp/api:<deployed-tag>
+trivy image --format cyclonedx -o api.cdx.json registry.example.com/shop/api:<deployed-tag>
 node dist/cli.js scan . --sbom api.cdx.json --baseline api.baseline.json --fail-on risk
 ```
 
@@ -151,7 +151,7 @@ Record vulnerabilities you decided not to fix in `.autofix-cve.json`. A reason i
 
 ```bash
 node dist/cli.js scan . --triage --vex app.vex.json
-trivy image --vex app.vex.json harbor.example.com/pdmp/api:abc123
+trivy image --vex app.vex.json registry.example.com/shop/api:abc123
 ```
 
 An allowlist in a registry or scanner says "stop reporting this" without saying why, and entries tend to outlive the reason. `--vex <file>` writes an [OpenVEX](https://openvex.dev) document instead, with one statement per vulnerability that this tool can actually back:

@@ -5,7 +5,7 @@
     "component": {
       "bom-ref": "img",
       "type": "container",
-      "name": "harbor.example.com/pdmp/api:abc123"
+      "name": "registry.example.com/shop/api:abc123"
     }
   },
   "components": [

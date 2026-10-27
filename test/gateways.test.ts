@@ -99,9 +99,9 @@ describe("GitLab", () => {
   it("works out the project and API from origin", () => {
     delete process.env.AUTOFIX_GITLAB_API;
     delete process.env.CI_API_V4_URL;
-    expect(gitlabProject("https://oauth2:tok@devops.example.com/rd/pdmp/rd_experiment.git")).toEqual({
+    expect(gitlabProject("https://oauth2:tok@devops.example.com/team/web/storefront.git")).toEqual({
       api: "https://devops.example.com/api/v4",
-      path: "rd/pdmp/rd_experiment",
+      path: "team/web/storefront",
     });
     expect(gitlabProject("git@devops.example.com:rd/app.git")).toEqual({ api: "https://devops.example.com/api/v4", path: "rd/app" });
     expect(gitlabProject("ssh://git@devops.example.com:2222/rd/app.git")?.path).toBe("rd/app");

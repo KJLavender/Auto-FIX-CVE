@@ -123,7 +123,7 @@ node dist/cli.js scan path/to/project --fail-on risk
 #### 已部署的映像（SBOM）
 
 ```bash
-trivy image --format cyclonedx -o api.cdx.json harbor.example.com/pdmp/api:<部署中的 tag>
+trivy image --format cyclonedx -o api.cdx.json registry.example.com/shop/api:<部署中的 tag>
 node dist/cli.js scan . --sbom api.cdx.json --baseline api.baseline.json --fail-on risk
 ```
 
@@ -151,7 +151,7 @@ pipeline 只在有人 push 時才檢查程式碼。新的 CVE 公布時，已經
 
 ```bash
 node dist/cli.js scan . --triage --vex app.vex.json
-trivy image --vex app.vex.json harbor.example.com/pdmp/api:abc123
+trivy image --vex app.vex.json registry.example.com/shop/api:abc123
 ```
 
 registry 或掃描器的 allowlist 只說「別再報這個」，不說為什麼，而且條目常常比當初的理由活得更久。`--vex <file>` 改為輸出 [OpenVEX](https://openvex.dev) 文件，只為這個工具真的有依據的漏洞寫 statement：
