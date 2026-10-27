@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { auditEvent } from "./audit.js";
@@ -38,13 +38,36 @@ async function gitStatus(root: string): Promise<StatusEntry[] | undefined> {
   return out;
 }
 
+/**
+ * The real, long form of a path, so `C:\Users\RUNNER~1\…` (8.3 names on
+ * Windows) and `C:/Users/runneradmin/…` (as git prints it) compare equal. For
+ * a path that does not exist yet, its closest existing parent is resolved.
+ */
+export function canonical(p: string): string {
+  const abs = path.resolve(p);
+  let dir = abs;
+  const rest: string[] = [];
+  while (!existsSync(dir) && path.dirname(dir) !== dir) {
+    rest.unshift(path.basename(dir));
+    dir = path.dirname(dir);
+  }
+  try {
+    return path.join(realpathSync.native(dir), ...rest);
+  } catch {
+    return abs;
+  }
+}
+
+/** Directories package managers and builds own: installs rewrite them, so changes there are expected. */
+export const MANAGED_DIRS = ["node_modules", ".yarn", ".pnp.cjs", ".pnp.loader.mjs", "vendor", ".venv", "venv", "__pycache__", "target", "obj"];
+
 const read = async (file: string) => (existsSync(file) ? readFile(file, "utf8") : null);
 
 /** Undefined outside a git repository: there is no reliable way to tell what changed. */
 export async function scopeSnapshot(projectDir: string): Promise<ScopeSnapshot | undefined> {
   const top = await runFile("git", ["rev-parse", "--show-toplevel"], projectDir, 30_000, { trusted: true });
   if (!top.ok) return undefined;
-  const root = path.resolve(top.output.trim());
+  const root = canonical(top.output.trim());
   const status = await gitStatus(root);
   if (!status) return undefined;
   const dirty = new Map<string, string | null>();
@@ -67,7 +90,7 @@ export interface ScopeResult {
  * directories it owns (e.g. `.autofix-cve/`) or that the user allowed.
  */
 export async function checkScope(snap: ScopeSnapshot, allowed: string[], allowedPrefixes: string[]): Promise<ScopeResult> {
-  const norm = (p: string) => path.resolve(p).toLowerCase();
+  const norm = (p: string) => canonical(p).toLowerCase();
   const ok = new Set(allowed.map(norm));
   // Each entry allows that file, or everything under that directory.
   const prefixes = allowedPrefixes.map((p) => norm(p));
@@ -80,7 +103,8 @@ export async function checkScope(snap: ScopeSnapshot, allowed: string[], allowed
     result.changed.push(e.path);
     if (ok.has(norm(e.path)) || underAllowed(e.path)) continue;
     const rel = path.relative(snap.root, e.path).split(path.sep).join("/");
-    if (!e.untracked || before !== undefined || SENSITIVE.test(rel)) result.violations.push(rel);
+    // Untracked files, new or rebuilt, are usually build output; only sensitive places count.
+    if (!e.untracked || SENSITIVE.test(rel)) result.violations.push(rel);
     else result.notes.push(rel);
   }
   // A file that was dirty before and is now back to clean also changed.
@@ -125,7 +149,7 @@ export async function enforceScope<T extends { status: string; reason?: string; 
   const scope = await checkScope(
     snap,
     [...declared, ...result.changedFiles].map(abs),
-    [abs(".autofix-cve"), ...allowChanges.map(abs)],
+    [abs(".autofix-cve"), ...MANAGED_DIRS.map(abs), ...allowChanges.map(abs)],
   );
   if (!scope.violations.length) return result;
   await revertToSnapshot(snap, scope.changed);

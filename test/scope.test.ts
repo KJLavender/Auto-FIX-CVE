@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { checkScope, enforceScope, scopeSnapshot } from "../src/scope.js";
+import { canonical, checkScope, enforceScope, scopeSnapshot } from "../src/scope.js";
 
 async function repo(): Promise<string> {
   const dir = await mkdtemp(path.join(tmpdir(), "autofix-scope-"));
@@ -60,6 +60,24 @@ describe("scope validation", () => {
     expect(await read(p(dir, "src", "app.js"))).toBe("module.exports = 1;\n");
     expect(existsSync(p(dir, ".github", "workflows", "x.yml"))).toBe(false);
     expect(await read(p(dir, "notes.txt"))).toBe("my local edit\n");
+  });
+
+  it("allows dependency trees and rebuilt build output, wherever the paths come from", async () => {
+    const dir = await repo();
+    await mkdir(p(dir, "node_modules", "a"), { recursive: true });
+    await writeFile(p(dir, "node_modules", "a", "index.js"), "v1");
+    await writeFile(p(dir, "go-app"), "binary v1");
+    const git = (...args: string[]) => execFileSync("git", args, { cwd: dir, stdio: "ignore" });
+    // Some projects commit node_modules.
+    git("add", "node_modules");
+    git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "deps");
+    const snap = await scopeSnapshot(dir);
+    await writeFile(p(dir, "node_modules", "a", "index.js"), "v2");
+    await writeFile(p(dir, "go-app"), "binary v2");
+    await writeFile(p(dir, "package.json"), "{}");
+    const r = await enforceScope(dir, snap, result(["package.json"]), "fixed", ["package.json"], []);
+    expect(r.status).toBe("fixed");
+    expect(canonical(path.join(dir, "no", "such", "file"))).toBe(path.join(canonical(dir), "no", "such", "file"));
   });
 
   it("honours --allow-changes, leaves failures alone, and skips outside git", async () => {
