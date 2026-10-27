@@ -238,6 +238,23 @@ Backport 會在你的 repo 加入這些檔案：
 
 加上 `--pr` 時，修補會 commit 到新的 `autofix-cve/<timestamp>` 分支、push，再用 `gh` 開成 pull request。開始修復之前會先檢查前置條件：必須有 checkout 的分支、指向 GitHub 的 `origin` remote，以及已登入的 `gh`。PR 內容會列出每個修好的 CVE 及其證據（通過的驗證指令、PoC 判定、OSV 確認）、模型對每處程式碼修改的說明、沒修好的項目與原因，以及重新掃描的結果。如果什麼都沒修好，就刪除這個分支。
 
+### Runtime（Dockerfile）
+
+```bash
+node dist/cli.js runtime path/to/repo                  # 報告
+node dist/cli.js runtime path/to/repo --fix            # 把 base image 釘到修好的版本
+node dist/cli.js runtime path/to/repo --fail-on risk --json
+```
+
+有些最嚴重的漏洞不在任何套件裡：Node2Shell（CVE-2026-111497）是 **Node.js 內建**的 Brotli 解碼器越界寫入，同一個上游 bug 也在 .NET 8.0.33 修掉。lockfile 掃描看不到它們，`apt-get upgrade` 也修不到，因為官方映像不是用 OS 套件安裝 runtime 的。`runtime` 會讀所有 Dockerfile（含子目錄），檢查它們所用的 Node.js 和 .NET 映像：
+
+- **固定版本的 tag**（`node:22.20.0-slim`、`dotnet/aspnet:8.0.30`）：列出同一條版本線後續版本修掉的漏洞。Node.js 用 Node.js 安全團隊的漏洞索引，另外也會列出索引還沒收錄、但已被標成安全性更新的新版本，所以 Node2Shell 在發布當天就抓得到。.NET 用 Microsoft 發行資料中的 CVE 清單。
+- **浮動 tag**（`node:22-bookworm-slim`、`aspnet:8.0`）：實際版本取決於 build 當下 registry 或鏡像快取給的是哪一版，重 build 不一定拿得到修補，所以會列出並釘版。
+- 90 天內或已經**結束支援**（EOL）。
+- 不會出貨的 build stage 會列出，但不會讓 build 失敗。`FROM` 行和 `ARG` 預設值都看得懂，registry 前綴（`nexus:8443/library/node`）也沒問題。
+
+`--fix` 會把每個受影響的 `FROM`（或它取版本用的 `ARG`）改成同一條版本線的最新版，保留變體後綴（`-bookworm-slim`、`-noble-chiseled`），不會更動主版本。`@sha256` digest 會被拿掉並提示，因為新的 digest 要 pull 之後才知道。改完後請重新 build 並部署。
+
 ### 驗證（CI）
 
 ```bash
@@ -325,6 +342,10 @@ Advisory 內文和上游 diff 對 LLM 來說都是不可信的輸入，所以會
 | `AUTOFIX_CRATES_INDEX` | `https://index.crates.io` | crates.io sparse index |
 | `AUTOFIX_GITHUB_API` | `https://api.github.com` | GitHub API（GitHub Enterprise），backport 抓 diff 用 |
 | `AUTOFIX_KEV_URL` | CISA 官方 feed | KEV 清單：URL、本機 JSON 檔，或 `off` |
+| `AUTOFIX_NODE_RELEASES_URL` | `https://nodejs.org/dist/index.json` | Node.js 發行清單（`runtime`） |
+| `AUTOFIX_NODE_VULNS_URL` | Node.js security-wg 的 `vuln/core/index.json` | Node.js 漏洞索引（`runtime`） |
+| `AUTOFIX_NODE_SCHEDULE_URL` | Node.js Release 的 `schedule.json` | Node.js EOL 日期（`runtime`） |
+| `AUTOFIX_DOTNET_RELEASES_URL` | Microsoft 的 `release-metadata/{channel}/releases.json` | .NET 發行資料，`{channel}` 會換成例如 `8.0`（`runtime`） |
 
 透過 npm 或 npx 執行時，會自動使用 `.npmrc` 設定的 registry。連不到 registry 時工具照樣可用，只是無法排除 deprecated 或 yank 的版本。
 

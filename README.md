@@ -238,6 +238,23 @@ Files a backport adds to your repo:
 
 With `--pr`, the fixes are committed to a new `autofix-cve/<timestamp>` branch, pushed, and opened as a pull request with `gh`. Prerequisites are checked before anything runs: a checked-out branch, an `origin` remote on GitHub, and a logged-in `gh`. The PR body lists every fixed CVE with its evidence (checks that passed, PoC verdicts, OSV confirmation), the model's explanation of each code change, anything that was not fixed and why, and the rescan result. If nothing could be fixed, the branch is deleted.
 
+### Runtime (Dockerfiles)
+
+```bash
+node dist/cli.js runtime path/to/repo                  # report
+node dist/cli.js runtime path/to/repo --fix            # pin the base images
+node dist/cli.js runtime path/to/repo --fail-on risk --json
+```
+
+Some of the worst vulnerabilities are not in any package: Node2Shell (CVE-2026-111497) is an out-of-bounds write in the Brotli decoder **built into Node.js**, and the same upstream bug was fixed in .NET 8.0.33. A lockfile scan cannot see them, and neither can `apt-get upgrade`, because the official images do not install the runtime as an OS package. `runtime` reads every Dockerfile (subdirectories included) and checks the Node.js and .NET images it builds on:
+
+- **Pinned tags** (`node:22.20.0-slim`, `dotnet/aspnet:8.0.30`): the vulnerabilities fixed in later releases of the same line. Node.js uses the Node.js security team's advisory index, and also any newer release marked as a security release that the index has not caught up with yet, which is how Node2Shell shows up on the day of the release. .NET uses the CVE list in Microsoft's release metadata.
+- **Floating tags** (`node:22-bookworm-slim`, `aspnet:8.0`): the version depends on what the registry, or a mirror's cache, served at build time, so a rebuild may not pick up a fix. They are reported and pinned.
+- **End of support** within 90 days, or already past.
+- Build stages that do not ship are reported but never fail the build. `FROM` lines and `ARG` defaults are both understood, and registry prefixes (`nexus:8443/library/node`) are fine.
+
+`--fix` rewrites each affected `FROM` (or the `ARG` it takes the version from) to the newest release of the same line, keeping the variant (`-bookworm-slim`, `-noble-chiseled`). It never changes the major version. A `@sha256` digest is dropped with a note, since the new one is only known after pulling. Rebuild and redeploy afterwards.
+
 ### Verify (CI)
 
 ```bash
@@ -325,6 +342,10 @@ Every outside service can be pointed at a mirror, for networks that only reach t
 | `AUTOFIX_CRATES_INDEX` | `https://index.crates.io` | crates.io sparse index |
 | `AUTOFIX_GITHUB_API` | `https://api.github.com` | GitHub API (GitHub Enterprise), for backport diffs |
 | `AUTOFIX_KEV_URL` | CISA's feed | KEV catalog: a URL, a local JSON file, or `off` |
+| `AUTOFIX_NODE_RELEASES_URL` | `https://nodejs.org/dist/index.json` | Node.js releases (`runtime`) |
+| `AUTOFIX_NODE_VULNS_URL` | Node.js security-wg `vuln/core/index.json` | Node.js advisory index (`runtime`) |
+| `AUTOFIX_NODE_SCHEDULE_URL` | Node.js Release `schedule.json` | Node.js end-of-life dates (`runtime`) |
+| `AUTOFIX_DOTNET_RELEASES_URL` | Microsoft's `release-metadata/{channel}/releases.json` | .NET releases; `{channel}` becomes e.g. `8.0` (`runtime`) |
 
 When run through npm or npx, the registry from your `.npmrc` is used automatically. If a registry cannot be reached, the tool still works; it just cannot rule out deprecated or yanked versions.
 

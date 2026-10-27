@@ -11,6 +11,7 @@ import { runPoc } from "./backport/poc.js";
 import { readBaseline, splitByBaseline, writeBaseline } from "./baseline.js";
 import { checkTools } from "./doctor.js";
 import { endpoints } from "./endpoints.js";
+import { applyRuntimeEdits, formatRuntimeReport, runtimeFails, scanRuntimes } from "./runtime/index.js";
 import { detectChecks } from "./fix/context.js";
 import { run } from "./fix/exec.js";
 import { FIXABLE, managerFor } from "./fix/managers.js";
@@ -318,6 +319,32 @@ program
       process.exitCode = results.some((r) => r.status !== "fixed") ? 1 : 0;
     },
   );
+
+program
+  .command("runtime")
+  .description("Check the Node.js and .NET runtimes your Dockerfiles build on, which dependency scans do not see")
+  .argument("[dir]", "directory to search for Dockerfiles (subdirectories included)", ".")
+  .option("--json", "print machine-readable JSON")
+  .option("--fix", "pin each affected or floating base image to the newest release of its line")
+  .addOption(
+    new Option("--fail-on <level>", "exit 1 when a shipped image has: any (vulnerability or end of life), high/risk (known exploited, high or unrated), none")
+      .choices(["any", "high", "risk", "none"])
+      .default("any"),
+  )
+  .action(async (dir: string, opts: { json?: boolean; fix?: boolean; failOn: FailOn }) => {
+    const root = path.resolve(dir);
+    const findings = await scanRuntimes(root);
+    if (opts.json) console.log(JSON.stringify(findings, null, 2));
+    else console.log(formatRuntimeReport(findings));
+    if (opts.fix) {
+      const changed = await applyRuntimeEdits(root, findings);
+      (opts.json ? console.error : console.log)(
+        changed.length ? pc.green(`Pinned base images in ${changed.join(", ")}. Rebuild the images to pick up the fixes.`) : pc.dim("Nothing to pin."),
+      );
+    }
+    // After --fix the edits still need a rebuild, so the exit code reflects what is deployed now.
+    process.exitCode = findings.some((f) => runtimeFails(f, opts.failOn)) ? 1 : 0;
+  });
 
 program
   .command("verify")

@@ -23,3 +23,17 @@ export async function fetchWithRetry(url: string, init?: RequestInit, attempts =
     await new Promise((r) => setTimeout(r, delay));
   }
 }
+
+/** Reads JSON from a URL or, for offline use, a local file path. Undefined when unavailable. */
+export async function loadJson<T>(source: string): Promise<T | undefined> {
+  try {
+    if (/^https?:\/\//i.test(source)) {
+      const res = await fetchWithRetry(source, { headers: { "user-agent": "autofix-cve" } });
+      return res.ok ? ((await res.json()) as T) : undefined;
+    }
+    const { readFile } = await import("node:fs/promises");
+    return JSON.parse(await readFile(source, "utf8")) as T;
+  } catch {
+    return undefined;
+  }
+}

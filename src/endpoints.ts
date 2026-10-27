@@ -12,6 +12,16 @@ export const endpoints = {
   pypi: () => base(process.env.AUTOFIX_PYPI_URL, "https://pypi.org/pypi"),
   crates: () => base(process.env.AUTOFIX_CRATES_INDEX, "https://index.crates.io"),
   github: () => base(process.env.AUTOFIX_GITHUB_API, "https://api.github.com"),
+  /** Runtime release data: a URL or a local file. */
+  nodeReleases: () => process.env.AUTOFIX_NODE_RELEASES_URL || "https://nodejs.org/dist/index.json",
+  nodeVulns: () => process.env.AUTOFIX_NODE_VULNS_URL || "https://raw.githubusercontent.com/nodejs/security-wg/main/vuln/core/index.json",
+  nodeSchedule: () => process.env.AUTOFIX_NODE_SCHEDULE_URL || "https://raw.githubusercontent.com/nodejs/Release/main/schedule.json",
+  /** `{channel}` is replaced by the .NET channel, e.g. `8.0`. */
+  dotnetReleases: (channel: string) =>
+    (process.env.AUTOFIX_DOTNET_RELEASES_URL || "https://dotnetcli.blob.core.windows.net/dotnet/release-metadata/{channel}/releases.json").replace(
+      "{channel}",
+      channel,
+    ),
   /** CISA's Known Exploited Vulnerabilities catalog: a URL, a local file, or `off`. */
   kev: () => process.env.AUTOFIX_KEV_URL || "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json",
 };

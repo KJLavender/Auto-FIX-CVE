@@ -18,6 +18,12 @@ All notable changes, newest first. No version has been released yet; everything 
 - Transitive packages are overridden only at their exact vulnerable version, and a nested copy pinned to the old version is overridden too.
 - `--pr` commits to a new branch and opens a pull request with the evidence for each fix.
 
+### Runtimes and gating
+- `runtime`: checks the Node.js and .NET base images in Dockerfiles (pinned or floating tags, `ARG` defaults, registry prefixes) against Node.js's advisory index and security releases and .NET's release CVE lists, warns about end of support, and `--fix` pins them to the newest release of the same line.
+- `--fail-on risk`: fail only on vulnerabilities in CISA's Known Exploited Vulnerabilities catalog, or high/critical ones that the code reaches. Known-exploited ones are tagged in every output.
+- Every outside service (OSV, npm, PyPI, crates.io, GitHub, KEV, runtime release data) can be pointed at a mirror or a local file, for networks behind Nexus or offline.
+- Checks run Angular's `ng test` once (`--watch=false`) instead of waiting forever in watch mode.
+
 ### Scanning and reporting
 - The suggested version is the smallest one OSV reports clean that is also installable: yanked (PyPI, crates.io) and deprecated (npm) releases are skipped. For example, lodash 4.18.0 is deprecated as a bad release, so 4.18.1 is suggested.
 - When some vulnerabilities have no fixed release, the ones that do still get fixed, and the rest are listed as open.
