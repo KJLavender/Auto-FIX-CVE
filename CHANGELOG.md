@@ -20,6 +20,7 @@ All notable changes, newest first. No version has been released yet; everything 
 - `--pr` commits to a new branch and opens a pull request with the evidence for each fix.
 
 ### Security of the run itself
+- `vet`: check packages before adding them (npm, PyPI, Go, crates.io, NuGet): malware (also when already unpublished), known vulnerabilities with the fixing release, deprecation and yanks, release age, and license policy over SPDX expressions; exit 1 on any failure.
 - Project commands (installs, checks, anything that runs package code) get only the environment builds need: tokens and keys are not passed, so a compromised release's install script cannot read them. `AUTOFIX_PASS_ENV` names exceptions; git and gh keep the full environment.
 - Audit trail: `fix` and `mitigate` write a JSON Lines log of the plan, every command (exit code, output tail), every model call (prompt hash, full reply, cost), the scope check and the results; `--audit-log`, `--no-audit`.
 - Scope validation: in a git repository, a fix or mitigation that changes tracked files it did not declare, or adds files in sensitive places (CI config, `.npmrc`, `.env`, hooks), is rolled back completely and reported as failed; `--allow-changes` permits more.

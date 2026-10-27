@@ -170,6 +170,23 @@ registry 或掃描器的 allowlist 只說「別再報這個」，不說為什麼
 
 沒有 `justification` 的 ignore 規則只在本工具內接受風險，不會對其他工具做任何聲明。每筆 statement 以 purl 指出套件（Debian 套件用已安裝的 binary）。`--vex-product <purl>` 會把它們列為某個產品（例如容器映像 `pkg:oci/…`）的 subcomponent，這是 Trivy 對映像的要求。把這個檔案和程式碼一起放進 Git，每一筆例外就會像其他修改一樣經過 review。
 
+### Vet（加入套件之前）
+
+```bash
+node dist/cli.js vet lodash@4.17.20 left-pad pypi:requests==2.31.0 go:github.com/gin-gonic/gin@v1.9.0 cargo:serde nuget:Newtonsoft.Json@12.0.1
+node dist/cli.js vet axios --deny-license GPL-3.0 AGPL-3.0 --strict --json
+```
+
+其他指令看的是已經安裝的東西；`vet` 是門口的檢查。對每個套件（預設 npm；其他用 `pypi:`、`go:`、`cargo:`、`nuget:` 前綴；沒指定版本就看最新版）回報：
+
+- **惡意程式**，包含已經從 registry 下架的版本（`event-stream@3.3.6` 在 npm 上「找不到」，但仍會標成惡意，因為鏡像和舊的 lockfile 可能還留著）；
+- **已知漏洞**，附 KEV、EPSS，以及修好的版本；
+- **已 deprecated 或 yanked** 的版本；
+- **發布時間**：未滿 `--min-age` 天（預設 7 天）會警告，因為被劫持的版本通常幾天內就會被發現；
+- **授權條款**，以 SPDX 表示式比對 `--allow-license` / `--deny-license`（`Apache 2.0` 這類自由文字會先正規化）；`MIT OR GPL-3.0` 可以透過 MIT 這個選項通過 GPL 禁令，`MIT AND GPL-3.0` 則不行。
+
+每個套件得到 PASS、WARN 或 FAIL，只要有一個 FAIL，exit code 就是 1（加上 `--strict` 時警告也算失敗），所以可以當成新增依賴時的 pre-commit 或 pipeline 步驟。資料來自各 registry 的公開 API（`AUTOFIX_NPM_REGISTRY`、`AUTOFIX_PYPI_URL`、`AUTOFIX_CRATES_API`、`AUTOFIX_GO_PROXY`、`AUTOFIX_NUGET_API` 可以改指向鏡像）。
+
 ### 修復
 
 ```bash

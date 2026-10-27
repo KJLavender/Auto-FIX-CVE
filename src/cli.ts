@@ -28,9 +28,10 @@ import { mergeSarif, toSarif, type SarifLog } from "./sarif.js";
 import { triageFindings } from "./triage.js";
 import { osDownloadList, readSbom } from "./sbom.js";
 import { enforceScope, scopeSnapshot } from "./scope.js";
+import { formatVet, parseSpec, vetPackage, type VetPolicy } from "./vet.js";
 import { auditEvent, auditing, defaultAuditPath, startAudit, stopAudit } from "./audit.js";
 import { openVex, vexStatements, type VexSources } from "./vex.js";
-import { fails, scan, scanDependencies, type FailOn, type IgnoredVuln, type Severity } from "./scan.js";
+import { fails, mapLimit, scan, scanDependencies, type FailOn, type IgnoredVuln, type Severity } from "./scan.js";
 import type { Finding } from "./types.js";
 
 // dist/cli.js sits one level below package.json, so this works from a clone and from npx.
@@ -526,6 +527,38 @@ program
       if (results.some((r) => r.status === "mitigated")) {
         console.log(pc.dim("Changes are left in the working tree for review. Upgrade with `fix` as soon as a fixed release ships."));
       }
+    },
+  );
+
+program
+  .command("vet")
+  .description("Check packages before adding them: malware, known vulnerabilities, deprecation, release age and license")
+  .argument("<packages...>", "e.g. lodash@4.17.21, pypi:requests==2.31.0, go:github.com/gin-gonic/gin@v1.9.0, cargo:serde, nuget:Newtonsoft.Json@13.0.1")
+  .option("--min-age <days>", "flag releases younger than this", (v) => Number.parseInt(v, 10), 7)
+  .option("--allow-license <spdx...>", "only these licenses pass (an unknown license then fails)")
+  .option("--deny-license <spdx...>", "these licenses fail")
+  .addOption(
+    new Option("--min-severity <level>", "vulnerabilities rated below this only warn").choices(["low", "moderate", "high", "critical"]),
+  )
+  .option("--strict", "treat warnings (young release, unknown license, minor vulnerabilities) as failures")
+  .option("--json", "print machine-readable JSON")
+  .action(
+    async (
+      specs: string[],
+      opts: { minAge: number; allowLicense?: string[]; denyLicense?: string[]; minSeverity?: Severity; strict?: boolean; json?: boolean },
+    ) => {
+      const policy: VetPolicy = {
+        minAgeDays: opts.minAge,
+        allowLicenses: opts.allowLicense,
+        denyLicenses: opts.denyLicense,
+        minSeverity: opts.minSeverity,
+        strict: opts.strict,
+      };
+      const osv = new OsvClient();
+      const results = await mapLimit(specs.map(parseSpec), 4, (spec) => vetPackage(spec, policy, { osv }));
+      if (opts.json) console.log(JSON.stringify(results, null, 2));
+      else console.log(formatVet(results));
+      process.exitCode = results.some((r) => r.verdict === "fail") ? 1 : 0;
     },
   );
 

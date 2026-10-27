@@ -12,6 +12,10 @@ export const endpoints = {
   pypi: () => base(process.env.AUTOFIX_PYPI_URL, "https://pypi.org/pypi"),
   crates: () => base(process.env.AUTOFIX_CRATES_INDEX, "https://index.crates.io"),
   github: () => base(process.env.AUTOFIX_GITHUB_API, "https://api.github.com"),
+  /** Package metadata for `vet`: release dates, licenses, deprecations. */
+  cratesApi: () => base(process.env.AUTOFIX_CRATES_API, "https://crates.io/api/v1"),
+  goProxy: () => base(process.env.AUTOFIX_GO_PROXY, "https://proxy.golang.org"),
+  nuget: () => base(process.env.AUTOFIX_NUGET_API, "https://api.nuget.org/v3"),
   /** Runtime release data: a URL or a local file. */
   nodeReleases: () => process.env.AUTOFIX_NODE_RELEASES_URL || "https://nodejs.org/dist/index.json",
   nodeVulns: () => process.env.AUTOFIX_NODE_VULNS_URL || "https://raw.githubusercontent.com/nodejs/security-wg/main/vuln/core/index.json",

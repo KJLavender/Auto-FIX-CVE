@@ -170,6 +170,23 @@ An allowlist in a registry or scanner says "stop reporting this" without saying 
 
 Ignore rules without a `justification` only accept the risk locally and make no claim to other tools. Statements name each package by its purl (Debian packages by their installed binaries). `--vex-product <purl>` lists them as subcomponents of a product such as the container image (`pkg:oci/…`), as Trivy expects for images. Keep the file in Git next to the code, so every exception is reviewed like any other change.
 
+### Vet (before adding a package)
+
+```bash
+node dist/cli.js vet lodash@4.17.20 left-pad pypi:requests==2.31.0 go:github.com/gin-gonic/gin@v1.9.0 cargo:serde nuget:Newtonsoft.Json@12.0.1
+node dist/cli.js vet axios --deny-license GPL-3.0 AGPL-3.0 --strict --json
+```
+
+The other commands look at what is already installed; `vet` is the check at the door. For each package (npm by default; `pypi:`, `go:`, `cargo:` and `nuget:` for the others; latest release when no version is given) it reports:
+
+- **malware**, including releases already pulled from the registry (`event-stream@3.3.6` is "not found" on npm, and still named as malicious, since mirrors and old lockfiles keep it);
+- **known vulnerabilities**, with KEV and EPSS, and the release that fixes them;
+- **deprecated or yanked** releases;
+- **release age**: younger than `--min-age` days (default 7) warns, because hijacked releases are usually caught within days;
+- **license**, as an SPDX expression (free text such as `Apache 2.0` is normalised), against `--allow-license` / `--deny-license`; `MIT OR GPL-3.0` passes a GPL ban through its MIT option, `MIT AND GPL-3.0` does not.
+
+Each package gets PASS, WARN or FAIL, and the exit code is 1 when any fails (`--strict` also fails on warnings), so it works as a pre-commit or pipeline step for new dependencies. Metadata comes from each registry's public API (`AUTOFIX_NPM_REGISTRY`, `AUTOFIX_PYPI_URL`, `AUTOFIX_CRATES_API`, `AUTOFIX_GO_PROXY`, `AUTOFIX_NUGET_API` point them at mirrors).
+
 ### Fix
 
 ```bash
