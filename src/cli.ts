@@ -234,6 +234,7 @@ program
   .option("--no-breaking", "only apply semver-compatible upgrades")
   .option("--no-backport", "never port upstream fixes into installed packages")
   .option("--prefer-backport", "backport instead of making a breaking upgrade")
+  .option("--ignore-scripts", "do not run packages' install scripts (also turns backports off, which need the project's postinstall)")
   .option("--dry-run", "show the plan and exit without changing anything")
   .option("-y, --yes", "apply the plan without asking (for CI)")
   .option("--allow-dirty", "run even if the git working tree has uncommitted changes")
@@ -252,6 +253,7 @@ program
         breaking: boolean;
         backport: boolean;
         preferBackport?: boolean;
+        ignoreScripts?: boolean;
         dryRun?: boolean;
         yes?: boolean;
         allowDirty?: boolean;
@@ -261,6 +263,10 @@ program
     ) => {
       const projectDir = path.resolve(dir);
       const log = (m: string) => console.error(pc.dim(m));
+      if (opts.ignoreScripts) {
+        process.env.AUTOFIX_IGNORE_SCRIPTS = "1";
+        opts.backport = false;
+      }
 
       const found = detectLockfiles(projectDir);
       const lock = opts.lockfile ? found.find((l) => l.file === opts.lockfile) : found[0];
@@ -279,7 +285,7 @@ program
       }
       const manager = managerFor(lock.kind, projectDir);
 
-      const status = await run("git status --porcelain", projectDir);
+      const status = await run("git status --porcelain", projectDir, 60_000, { trusted: true });
       if (status.ok && status.output.trim() && !opts.allowDirty) {
         throw new Error("Uncommitted changes in the git working tree. Commit or stash them, or pass --allow-dirty.");
       }
@@ -389,6 +395,7 @@ program
   .option("--dry-run", "list what would be mitigated and exit")
   .option("-y, --yes", "go ahead without asking (for CI)")
   .option("--allow-dirty", "run even if the git working tree has uncommitted changes")
+  .option("--ignore-scripts", "do not run packages' install scripts")
   .option("--json", "print machine-readable JSON")
   .action(
     async (
@@ -399,6 +406,7 @@ program
         lockfile?: string;
         maxAttempts: number;
         maxCost?: number;
+        ignoreScripts?: boolean;
         dryRun?: boolean;
         yes?: boolean;
         allowDirty?: boolean;
@@ -407,10 +415,11 @@ program
     ) => {
       const projectDir = path.resolve(dir);
       const log = (m: string) => console.error(pc.dim(m));
+      if (opts.ignoreScripts) process.env.AUTOFIX_IGNORE_SCRIPTS = "1";
       const found = detectLockfiles(projectDir);
       const lock = opts.lockfile ? found.find((l) => l.file === opts.lockfile) : found[0];
       if (!lock) throw new Error(opts.lockfile ? `${opts.lockfile} is not a lockfile found here.` : `No lockfile in ${projectDir}.`);
-      const status = await run("git status --porcelain", projectDir);
+      const status = await run("git status --porcelain", projectDir, 60_000, { trusted: true });
       if (status.ok && status.output.trim() && !opts.allowDirty) {
         throw new Error("Uncommitted changes in the git working tree. Commit or stash them, or pass --allow-dirty.");
       }

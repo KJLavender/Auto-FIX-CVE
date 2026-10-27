@@ -19,6 +19,10 @@ All notable changes, newest first. No version has been released yet; everything 
 - Transitive packages are overridden only at their exact vulnerable version, and a nested copy pinned to the old version is overridden too.
 - `--pr` commits to a new branch and opens a pull request with the evidence for each fix.
 
+### Security of the run itself
+- Project commands (installs, checks, anything that runs package code) get only the environment builds need: tokens and keys are not passed, so a compromised release's install script cannot read them. `AUTOFIX_PASS_ENV` names exceptions; git and gh keep the full environment.
+- `--ignore-scripts` on `fix` and `mitigate`; `AUTOFIX_EXEC_WRAPPER` runs project commands inside a sandbox such as `docker run … sh -c`.
+
 ### Runtimes and gating
 - `mitigate`: for vulnerabilities with no fixed release, the model adds guards at the project's own call sites (validation, size caps, safer options), verified by the checks and rolled back on failure. Recorded with the added code; reports mark them as mitigated with the remaining risk while the code is in place, and VEX states `inline_mitigations_already_exist`.
 - `runtime`: checks the Node.js and .NET base images in Dockerfiles (pinned or floating tags, `ARG` defaults, registry prefixes) against Node.js's advisory index and security releases and .NET's release CVE lists, warns about end of support, and `--fix` pins them to the newest release of the same line.

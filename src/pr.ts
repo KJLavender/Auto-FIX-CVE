@@ -7,7 +7,7 @@ import { createMergeRequest, gitlabProject, gitlabToken } from "./gitlab.js";
 import type { Finding } from "./types.js";
 
 async function git(projectDir: string, args: string[]): Promise<string> {
-  const res = await runFile("git", args, projectDir, 120_000);
+  const res = await runFile("git", args, projectDir, 120_000, { trusted: true });
   if (!res.ok) throw new Error(`git ${args.join(" ")} failed:\n${res.output}`);
   return res.output.trim();
 }
@@ -29,7 +29,7 @@ export async function checkPrPrerequisites(projectDir: string): Promise<string> 
     }
     return base;
   }
-  const auth = await runFile("gh", ["auth", "status"], projectDir, 30_000).catch(() => undefined);
+  const auth = await runFile("gh", ["auth", "status"], projectDir, 30_000, { trusted: true }).catch(() => undefined);
   if (!auth?.ok) throw new Error("--pr needs the GitHub CLI (`gh`) installed and logged in.");
   return base;
 }
@@ -125,6 +125,7 @@ export async function openPr(
     ["pr", "create", "--base", base, "--head", branch, "--title", title, "--body-file", bodyFile],
     projectDir,
     120_000,
+    { trusted: true },
   );
   if (!res.ok) throw new Error(`gh pr create failed:\n${res.output}`);
   return res.output.trim().split("\n").pop() ?? "";

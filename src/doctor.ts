@@ -57,7 +57,7 @@ export async function checkTools(): Promise<ToolStatus[]> {
   return Promise.all([
     ...openai,
     ...tools().map(async (t) => {
-      const res = await run(t.probe, process.cwd(), 30_000);
+      const res = await run(t.probe, process.cwd(), 30_000, { trusted: true });
       const first = res.output.trim().split(/\r?\n/).find((l) => l.trim()) ?? "";
       return { name: t.name, ok: res.ok, detail: res.ok ? first.trim().slice(0, 60) : "not found", enables: t.enables, env: t.env };
     }),

@@ -13,7 +13,7 @@ function githubToken(): Promise<string | undefined> {
   cachedToken ??= (async () => {
     const env = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN;
     if (env) return env;
-    const res = await runFile("gh", ["auth", "token"], process.cwd(), 10_000).catch(() => undefined);
+    const res = await runFile("gh", ["auth", "token"], process.cwd(), 10_000, { trusted: true }).catch(() => undefined);
     return res?.ok ? res.output.trim() : undefined;
   })();
   return cachedToken;

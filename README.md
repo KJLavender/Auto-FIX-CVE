@@ -382,11 +382,19 @@ All 57 known vulnerabilities were fixed and every project's tests still pass. Si
 
 ## Security model
 
+The model never runs anything. It is called with no tools and can only return JSON: a verdict, an explanation, or search/replace edits. Which commands run (the install, your checks, the PoCs) is decided by this tool, not by the model, so a prompt injected through advisory text has no command to hijack.
+
 Advisory text and upstream diffs are untrusted input to the LLM, so its output is constrained:
 
 - Code edits are exact search/replace operations. They cannot touch `package.json`, lockfiles or anything outside the project, and backport edits stay inside the one package being patched.
 - PoC scripts run under the Node.js permission model (`--permission`): read-only access to the project, no file writes, no child processes, no native addons, and a 10 s timeout.
 - Nothing is kept unless your checks pass, and for backports the PoCs too.
+
+The commands themselves run with the least they need:
+
+- **No credentials.** Installs, checks and anything that runs package code get an environment with only what builds need (`PATH`, home and temp directories, proxy and CA settings, package-manager configuration). Tokens and keys (`GITHUB_TOKEN`, `AUTOFIX_OPENAI_API_KEY`, `AWS_*`, anything named like a token, password or key) are left out, so the install script of a freshly upgraded, possibly compromised release cannot read them. Name the ones an install really needs, such as `NPM_TOKEN` for a private registry, in `AUTOFIX_PASS_ENV=NPM_TOKEN`. Only git and gh, which push and open pull requests, see the full environment.
+- **No install scripts** with `--ignore-scripts` (on `fix` and `mitigate`): packages' lifecycle scripts do not run at all. Backports are turned off with it, since they are kept by the project's own postinstall.
+- **A sandbox of your choice** with `AUTOFIX_EXEC_WRAPPER`: every project command runs inside it, with `{dir}` replaced by the project directory and the command appended as the last argument, for example `docker run --rm -v {dir}:/work -w /work node:22 sh -c`. Use `--network none` there to run checks offline (installs need the registry), or `bwrap`/`firejail` on Linux.
 
 ## Mirrors and offline use
 

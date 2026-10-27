@@ -382,11 +382,19 @@ node dist/cli.js scan . --baseline .autofix-baseline.json                     # 
 
 ## 安全模型
 
+模型從不執行任何東西。呼叫時不提供任何工具，它只能回傳 JSON：判斷、說明，或 search/replace 修改。要執行哪些指令（安裝、你的驗證指令、PoC）由這個工具決定，不由模型決定，所以就算有人透過 advisory 內文做 prompt injection，也沒有指令可以劫持。
+
 Advisory 內文和上游 diff 對 LLM 來說都是不可信的輸入，所以會限制它的輸出：
 
 - 程式碼修改只能是精確的 search/replace，不能動 `package.json`、lockfile 或專案以外的任何東西；backport 的修改只能落在被修補的那一個套件內。
 - PoC 腳本在 Node.js permission model（`--permission`）下執行：專案唯讀、不能寫檔、不能開子程序、不能載入原生模組，並有 10 秒逾時。
 - 必須通過你的驗證指令（backport 還要通過 PoC），修改才會留下。
+
+執行的指令本身也只拿到最少的權限：
+
+- **不帶憑證**。安裝、驗證指令和任何會執行套件程式碼的指令，只拿到 build 需要的環境變數（`PATH`、家目錄與暫存目錄、proxy 與 CA 設定、套件管理工具的設定）。token 與金鑰（`GITHUB_TOKEN`、`AUTOFIX_OPENAI_API_KEY`、`AWS_*`，以及名稱像 token、password、key 的變數）都不會傳下去，所以剛升級、可能遭到投毒的新版本，它的 install script 讀不到這些值。安裝真的需要的變數（例如私有 registry 的 `NPM_TOKEN`）請寫在 `AUTOFIX_PASS_ENV=NPM_TOKEN`。只有負責 push 和開 PR 的 git 與 gh 會看到完整的環境變數。
+- **不跑 install script**：`fix` 和 `mitigate` 加上 `--ignore-scripts`，套件的 lifecycle script 完全不會執行。backport 會一併關閉，因為它要靠專案自己的 postinstall 保留修補。
+- **自選沙盒**：設定 `AUTOFIX_EXEC_WRAPPER` 後，所有專案指令都在裡面執行，`{dir}` 換成專案目錄，指令接在最後一個參數，例如 `docker run --rm -v {dir}:/work -w /work node:22 sh -c`。在那裡加上 `--network none` 就能離線跑驗證指令（安裝仍需連 registry）；Linux 上也可以用 `bwrap`/`firejail`。
 
 ## 鏡像與離線使用
 
