@@ -309,6 +309,12 @@ Some of the worst vulnerabilities are not in any package: Node2Shell (CVE-2026-1
 
 `--fix` rewrites each affected `FROM` (or the `ARG` it takes the version from) to the newest release of the same line, keeping the variant (`-bookworm-slim`, `-noble-chiseled`). It never changes the major version. A `@sha256` digest is dropped with a note, since the new one is only known after pulling. Rebuild and redeploy afterwards.
 
+#### Memory across runs
+
+Within one run, a failed repair round is followed by another that sees the failure output and what was tried. Across runs, `fix` and `mitigate` keep **lessons** in `.autofix-cve/memory.json`: for each package and version step, what worked (how the model adapted the code, which files it changed) and what failed and why (the check that broke, or the scope violation that rolled it back). The next time the same package comes up, in this run or a later one, on a laptop or a fresh CI runner, the most relevant lessons go into the prompt: the same kind of fix and target major first, successes before failures, newest first.
+
+Only outcomes the tool established are stored, never notes the model chooses to keep, so a lesson is as reliable as the checks behind it. The file is plain JSON meant to be committed and reviewed like any other change; the model cannot edit it, and every recall and record appears in the audit log. `AUTOFIX_MEMORY=/shared/memory.json` lets several repositories learn from each other, and `--no-memory` runs without it.
+
 ### Mitigate (no fixed release yet)
 
 ```bash

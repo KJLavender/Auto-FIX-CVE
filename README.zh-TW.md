@@ -309,6 +309,12 @@ node dist/cli.js runtime path/to/repo --fail-on risk --json
 
 `--fix` 會把每個受影響的 `FROM`（或它取版本用的 `ARG`）改成同一條版本線的最新版，保留變體後綴（`-bookworm-slim`、`-noble-chiseled`），不會更動主版本。`@sha256` digest 會被拿掉並提示，因為新的 digest 要 pull 之後才知道。改完後請重新 build 並部署。
 
+#### 跨執行的記憶
+
+同一次執行裡，某一輪修復失敗後，下一輪會看到失敗輸出和前面試過的做法。跨執行時，`fix` 和 `mitigate` 會把**經驗**存在 `.autofix-cve/memory.json`：針對每個套件與版本升級，記錄成功的做法（模型怎麼改程式、改了哪些檔案），以及失敗的做法和原因（哪個驗證指令失敗，或是因為越界而被回滾）。下次遇到同一個套件，不論是同一次還是之後的執行、在筆電上還是全新的 CI runner 上，最相關的經驗都會放進 prompt：同類型的修復與相同目標主版本優先，成功的排在失敗之前，新的排在舊的之前。
+
+只記錄工具自己確認過的結果，不記錄模型自行決定保留的筆記，所以每筆經驗的可靠程度等同於背後的驗證指令。這是一般的 JSON 檔，可以和其他修改一樣 commit 並 review；模型無法修改它，每次讀取和寫入都會出現在稽核紀錄裡。`AUTOFIX_MEMORY=/shared/memory.json` 可以讓多個 repo 共用經驗，`--no-memory` 則完全不使用。
+
 ### Mitigate（還沒有修補版時）
 
 ```bash

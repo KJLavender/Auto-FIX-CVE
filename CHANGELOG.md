@@ -19,6 +19,10 @@ All notable changes, newest first. No version has been released yet; everything 
 - Transitive packages are overridden only at their exact vulnerable version, and a nested copy pinned to the old version is overridden too.
 - `--pr` commits to a new branch and opens a pull request with the evidence for each fix.
 
+### Learning across runs
+- Lessons in `.autofix-cve/memory.json`: what worked and what failed (and why) per package and version step, recorded by `fix` and `mitigate` after the scope check and shown to the model the next time the same package comes up. Only tool-verified outcomes are kept; the model cannot edit the file; `AUTOFIX_MEMORY` shares it, `--no-memory` turns it off.
+- The dirty-tree check ignores the tool's own `.autofix-cve/` records, so a run's memory and audit log do not block the next run.
+
 ### Security of the run itself
 - `vet`: check packages before adding them (npm, PyPI, Go, crates.io, NuGet): malware (also when already unpublished), known vulnerabilities with the fixing release, deprecation and yanks, release age, and license policy over SPDX expressions; exit 1 on any failure.
 - Project commands (installs, checks, anything that runs package code) get only the environment builds need: tokens and keys are not passed, so a compromised release's install script cannot read them. `AUTOFIX_PASS_ENV` names exceptions; git and gh keep the full environment.

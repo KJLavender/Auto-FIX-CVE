@@ -28,6 +28,7 @@ import { mergeSarif, toSarif, type SarifLog } from "./sarif.js";
 import { triageFindings } from "./triage.js";
 import { osDownloadList, readSbom } from "./sbom.js";
 import { enforceScope, scopeSnapshot } from "./scope.js";
+import { FileMemory, lessonFrom } from "./memory.js";
 import { formatVet, parseSpec, vetPackage, type VetPolicy } from "./vet.js";
 import { auditEvent, auditing, defaultAuditPath, startAudit, stopAudit } from "./audit.js";
 import { openVex, vexStatements, type VexSources } from "./vex.js";
@@ -79,6 +80,16 @@ function withBudget(backend: LlmBackend, maxCost: number | undefined): LlmBacken
  * Opens the run's audit log (unless --no-audit) before anything changes, and
  * closes it when the process exits, whatever the outcome.
  */
+/**
+ * Whether the working tree has uncommitted changes, not counting this tool's
+ * own records (`.autofix-cve/`: memory, audit logs), which a previous run leaves behind.
+ */
+async function uncommittedChanges(projectDir: string): Promise<boolean> {
+  const status = await run("git status --porcelain", projectDir, 60_000, { trusted: true });
+  if (!status.ok) return false;
+  return status.output.split(/\r?\n/).some((line) => line.trim() && !/(^|\/)\.autofix-cve\//.test(line.slice(3).replace(/^"|"$/g, "")));
+}
+
 function openAudit(projectDir: string, command: string, opts: { audit?: boolean; auditLog?: string }, meta: Record<string, unknown>): string | undefined {
   if (opts.audit === false) return undefined;
   const file = startAudit(path.resolve(opts.auditLog ?? defaultAuditPath(projectDir, command)), {
@@ -263,6 +274,7 @@ program
   .option("--allow-changes <path...>", "files or directories a fix may change besides its own (e.g. committed build output)")
   .option("--audit-log <file>", "where to write the run's audit log (default .autofix-cve/audit/fix-<time>.jsonl)")
   .option("--no-audit", "do not write an audit log")
+  .option("--no-memory", "neither use nor record lessons from earlier runs (.autofix-cve/memory.json)")
   .option("--dry-run", "show the plan and exit without changing anything")
   .option("-y, --yes", "apply the plan without asking (for CI)")
   .option("--allow-dirty", "run even if the git working tree has uncommitted changes")
@@ -285,6 +297,7 @@ program
         allowChanges?: string[];
         audit?: boolean;
         auditLog?: string;
+        memory?: boolean;
         dryRun?: boolean;
         yes?: boolean;
         allowDirty?: boolean;
@@ -316,8 +329,7 @@ program
       }
       const manager = managerFor(lock.kind, projectDir);
 
-      const status = await run("git status --porcelain", projectDir, 60_000, { trusted: true });
-      if (status.ok && status.output.trim() && !opts.allowDirty) {
+      if (!opts.allowDirty && (await uncommittedChanges(projectDir))) {
         throw new Error("Uncommitted changes in the git working tree. Commit or stash them, or pass --allow-dirty.");
       }
 
@@ -368,6 +380,7 @@ program
       if (checks.length) await verifyBaseline(projectDir, checks);
       const branch = base ? await createBranch(projectDir) : undefined;
 
+      const memory = opts.memory === false ? undefined : FileMemory.forProject(projectDir);
       const fixOpts = {
         ...policy,
         manager,
@@ -375,6 +388,7 @@ program
         backend: withBudget(createBackend(), opts.maxCost),
         osv: new OsvClient(),
         log,
+        memory,
       };
       log(`Model: ${DEFAULT_MODEL}`);
       const results: FixResult[] = [];
@@ -394,7 +408,10 @@ program
         log(`\n${step.finding.dependency.name}@${step.finding.dependency.version}`);
         const snap = await scopeSnapshot(projectDir);
         const result = await runStep(step);
-        results.push(await enforceScope(projectDir, snap, result, "fixed", manager.manifestFiles, opts.allowChanges ?? [], () => manager.install()));
+        const final = await enforceScope(projectDir, snap, result, "fixed", manager.manifestFiles, opts.allowChanges ?? [], () => manager.install());
+        results.push(final);
+        const lesson = lessonFrom(step.finding.dependency, final);
+        if (memory && lesson) await memory.record(lesson);
       }
 
       log("\nRescanning…");
@@ -435,6 +452,7 @@ program
   .option("--allow-changes <path...>", "files or directories a mitigation may change besides the ones it edits")
   .option("--audit-log <file>", "where to write the run's audit log (default .autofix-cve/audit/mitigate-<time>.jsonl)")
   .option("--no-audit", "do not write an audit log")
+  .option("--no-memory", "neither use nor record lessons from earlier runs (.autofix-cve/memory.json)")
   .option("--json", "print machine-readable JSON")
   .action(
     async (
@@ -449,6 +467,7 @@ program
         allowChanges?: string[];
         audit?: boolean;
         auditLog?: string;
+        memory?: boolean;
         dryRun?: boolean;
         yes?: boolean;
         allowDirty?: boolean;
@@ -461,8 +480,7 @@ program
       const found = detectLockfiles(projectDir);
       const lock = opts.lockfile ? found.find((l) => l.file === opts.lockfile) : found[0];
       if (!lock) throw new Error(opts.lockfile ? `${opts.lockfile} is not a lockfile found here.` : `No lockfile in ${projectDir}.`);
-      const status = await run("git status --porcelain", projectDir, 60_000, { trusted: true });
-      if (status.ok && status.output.trim() && !opts.allowDirty) {
+      if (!opts.allowDirty && (await uncommittedChanges(projectDir))) {
         throw new Error("Uncommitted changes in the git working tree. Commit or stash them, or pass --allow-dirty.");
       }
 
@@ -501,12 +519,16 @@ program
       if (checks.length) await verifyBaseline(projectDir, checks);
 
       const backend = withBudget(createBackend(), opts.maxCost);
+      const memory = opts.memory === false ? undefined : FileMemory.forProject(projectDir);
       const results: MitigateResult[] = [];
       for (const f of candidates) {
         log(`\n${f.dependency.name}@${f.dependency.version}`);
         const snap = await scopeSnapshot(projectDir);
-        const result = await mitigateFinding(projectDir, f, { backend, checks, maxAttempts: opts.maxAttempts, log });
-        results.push(await enforceScope(projectDir, snap, result, "mitigated", [], opts.allowChanges ?? []));
+        const result = await mitigateFinding(projectDir, f, { backend, checks, maxAttempts: opts.maxAttempts, log, memory });
+        const final = await enforceScope(projectDir, snap, result, "mitigated", [], opts.allowChanges ?? []);
+        results.push(final);
+        const lesson = lessonFrom(f.dependency, final, "mitigate");
+        if (memory && lesson) await memory.record(lesson);
       }
       auditEvent("results", { results });
       if (auditFile) log(`Audit log: ${path.relative(process.cwd(), auditFile)}`);

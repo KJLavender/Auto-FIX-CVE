@@ -12,6 +12,7 @@ import { relevantFiles } from "./context.js";
 import { applyEdits, changedSince, restoreFiles, snapshot, type Edit } from "./edits.js";
 import { run, tail } from "./exec.js";
 import type { PackageManager } from "./managers.js";
+import { formatLessons, type MemoryStore } from "../memory.js";
 
 export type FixStatus = "fixed" | "skipped" | "failed";
 
@@ -44,6 +45,8 @@ export interface FixOptions extends PlanPolicy {
   backend: LlmBackend;
   osv: OsvClient;
   log: (message: string) => void;
+  /** Lessons from earlier runs, recalled when the model is asked to repair code. */
+  memory?: MemoryStore;
 }
 
 interface CheckResult {
@@ -111,6 +114,7 @@ function buildPrompt(
   changelog: string | undefined,
   history: string[],
   files: Map<string, string>,
+  lessons = "",
 ): string {
   const { name, version } = finding.dependency;
   const parts: string[] = [];
@@ -127,6 +131,7 @@ function buildPrompt(
   }
   parts.push(`\n## Runtime exports of ${name}\nBefore (${version}):\n${shapes.before}\nAfter (${to}):\n${shapes.after}`);
   if (changelog) parts.push(`\n## ${name} changelog (newest first, down to ${version})\n${changelog}`);
+  if (lessons) parts.push(lessons);
   if (history.length) parts.push(`\n## Previous attempts (did not fix it)\n${history.join("\n")}`);
   parts.push("\n## Files");
   for (const [file, content] of files) parts.push(`### ${file}\n\`\`\`\n${content}\n\`\`\``);
@@ -252,6 +257,7 @@ export async function fixFinding(projectDir: string, finding: Finding, opts: Fix
   const changelog = direct ? await pm.changelog(dep.name, dep.version) : undefined;
   const sources = await pm.sourceFiles();
   const history: string[] = [];
+  let lessons: string | undefined;
 
   let check = await runChecks(projectDir, opts.checks);
   while (!check.ok) {
@@ -265,7 +271,11 @@ export async function fixFinding(projectDir: string, finding: Finding, opts: Fix
     for (const f of await relevantFiles(projectDir, finding.usages, check.output, sources)) {
       files.set(f, await readFile(path.join(projectDir, f), "utf8"));
     }
-    const prompt = buildPrompt(finding, actual, check, shapes, changelog, history, files);
+    lessons ??= formatLessons(
+      dep.name,
+      (await opts.memory?.recall({ ecosystem: dep.ecosystem, package: dep.name, from: dep.version, to: actual, kind: result.strategy as "upgrade" | "override" })) ?? [],
+    );
+    const prompt = buildPrompt(finding, actual, check, shapes, changelog, history, files, lessons);
     let reply: CompletionResult<{ explanation: string; edits: Edit[] }>;
     try {
       reply = await opts.backend.complete<{ explanation: string; edits: Edit[] }>({ system: systemPrompt(pm), prompt, schema: EDIT_SCHEMA });

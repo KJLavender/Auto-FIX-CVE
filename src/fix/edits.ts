@@ -11,7 +11,7 @@ export interface Edit {
 
 // Manifests, lockfiles and installed packages are owned by the package manager, never by model edits.
 const PROTECTED =
-  /(^|\/)(node_modules\/|package\.json$|package-lock\.json$|\.git\/|\.venv\/|pyproject\.toml$|uv\.lock$|poetry\.lock$|Pipfile(\.lock)?$|requirements[^/]*\.txt$|go\.(mod|sum)$|vendor\/|Cargo\.(toml|lock)$|target\/|\.(cs|fs|vb)proj$|Directory\.(Packages|Build)\.props$|packages\.lock\.json$|obj\/)/;
+  /(^|\/)(node_modules\/|package\.json$|package-lock\.json$|\.git\/|\.venv\/|pyproject\.toml$|uv\.lock$|poetry\.lock$|Pipfile(\.lock)?$|requirements[^/]*\.txt$|go\.(mod|sum)$|vendor\/|Cargo\.(toml|lock)$|target\/|\.(cs|fs|vb)proj$|Directory\.(Packages|Build)\.props$|packages\.lock\.json$|obj\/|\.autofix-cve(\.json$|\/))/;
 
 /** Puts files back as recorded by `applyEdits` / `snapshot`; files that did not exist are deleted. */
 export async function restoreFiles(originals: Map<string, string | null>): Promise<void> {

@@ -5,6 +5,7 @@ import { applyEdits, changedSince, restoreFiles, type Edit } from "./fix/edits.j
 import { run, tail } from "./fix/exec.js";
 import { describeVuln } from "./fix/upgrade.js";
 import type { LlmBackend } from "./llm/backend.js";
+import { formatLessons, type MemoryStore } from "./memory.js";
 import type { Finding, Usage, Vulnerability } from "./types.js";
 
 /** Vulnerabilities in a finding that no release fixes yet: the ones mitigation is for. */
@@ -43,6 +44,8 @@ export interface MitigateOptions {
   log: (message: string) => void;
   /** Source files the model may see, besides the call sites' files. */
   maxFiles?: number;
+  /** Lessons from earlier mitigations of this package. */
+  memory?: MemoryStore;
 }
 
 const SYSTEM = `You are an application security engineer. A dependency has vulnerabilities with NO fixed release, so it cannot be upgraded. Reduce the risk in the project's OWN code, at the call sites shown, until a fix ships.
@@ -79,13 +82,14 @@ interface Reply {
   edits: Edit[];
 }
 
-function buildPrompt(f: Finding, vulns: Vulnerability[], files: Map<string, string>, history: string[]): string {
+function buildPrompt(f: Finding, vulns: Vulnerability[], files: Map<string, string>, history: string[], lessons = ""): string {
   const d = f.dependency;
   const parts = [`## Package\n\`${d.name}@${d.version}\` (${d.ecosystem}), ${d.direct ? "a direct dependency" : `pulled in by ${d.introducedBy.join(", ")}`}.`];
   parts.push("\n## Vulnerabilities without a fixed release");
   for (const v of vulns) parts.push(`### ${describeVuln(v)}: ${v.summary}\n${v.details.slice(0, 2500)}`);
   parts.push("\n## Call sites in this project");
   for (const u of callSites(f)) parts.push(`- ${u.file}:${u.line} \`${u.symbol}\`${u.mentionedBy.length ? " (named in the advisory)" : ""}: ${u.snippet}`);
+  if (lessons) parts.push(lessons);
   if (history.length) parts.push(`\n## Previous attempts (rolled back)\n${history.join("\n")}`);
   parts.push("\n## Files");
   for (const [file, content] of files) parts.push(`### ${file}\n\`\`\`\n${content}\n\`\`\``);
@@ -124,11 +128,13 @@ export async function mitigateFinding(projectDir: string, f: Finding, opts: Miti
   for (const file of fileNames) files.set(file, await readFile(path.join(projectDir, file), "utf8"));
 
   const history: string[] = [];
+  const d = f.dependency;
+  const lessons = formatLessons(d.name, (await opts.memory?.recall({ ecosystem: d.ecosystem, package: d.name, from: d.version, kind: "mitigate" })) ?? []);
   for (let attempt = 1; attempt <= opts.maxAttempts; attempt++) {
     result.attempts = attempt;
     let reply: Reply;
     try {
-      const res = await opts.backend.complete<Reply>({ system: SYSTEM, prompt: buildPrompt(f, vulns, files, history), schema: SCHEMA });
+      const res = await opts.backend.complete<Reply>({ system: SYSTEM, prompt: buildPrompt(f, vulns, files, history, lessons), schema: SCHEMA });
       result.costUsd += res.costUsd;
       reply = res.output;
     } catch (e) {
